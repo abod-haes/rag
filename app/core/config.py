@@ -3,9 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    app_name: str = "RAG Service"
+    app_version: str = "0.1.0"
     app_env: str = "development"
-    rag_api_key: str = "change-this-secret"
+    cors_origins: list[str] = ["*"]
 
+    rag_api_key: str = "change-this-secret"
     database_url: str
 
     gemini_api_key: str
@@ -24,3 +27,6 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+settings = get_settings()
