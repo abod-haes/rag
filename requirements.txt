@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+psycopg2-binary
+pypdf
+google-genai
+python-dotenv
+numpy
