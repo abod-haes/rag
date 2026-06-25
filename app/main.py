@@ -1,3 +1,5 @@
+import time
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,7 +27,14 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def on_startup() -> None:
-        init_db()
+        for attempt in range(10):
+            try:
+                init_db()
+                return
+            except Exception:
+                if attempt == 9:
+                    raise
+                time.sleep(2)
 
     app.include_router(health_router)
     app.include_router(documents_router)
