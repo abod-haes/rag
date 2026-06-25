@@ -1,0 +1,29 @@
+services:
+  rag-api:
+    build: .
+    container_name: rag_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    volumes:
+      - ./app/uploads:/code/app/uploads
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rag_postgres
+    environment:
+      POSTGRES_DB: rag_db
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - rag_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  rag_postgres_data:
