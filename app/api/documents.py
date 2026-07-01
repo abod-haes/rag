@@ -2,7 +2,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.core.config import get_settings
 from app.core.security import verify_api_key
@@ -22,11 +22,10 @@ router = APIRouter(
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-def upload_document(
-    file: UploadFile = File(...),
-    user_id: str = Form(DEFAULT_USER_ID, alias="userId"),
-    project_id: str = Form(DEFAULT_PROJECT_ID, alias="projectId"),
-):
+def upload_document(file: UploadFile = File(...)):
+    user_id = DEFAULT_USER_ID
+    project_id = DEFAULT_PROJECT_ID
+
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
@@ -94,10 +93,7 @@ def upload_document(
 
 
 @router.get("")
-def list_documents(
-    user_id: str = Query(DEFAULT_USER_ID, alias="userId"),
-    project_id: str = Query(DEFAULT_PROJECT_ID, alias="projectId"),
-):
+def list_documents():
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -106,7 +102,7 @@ def list_documents(
             WHERE user_id = %s AND project_id = %s
             ORDER BY created_at DESC
             """,
-            (user_id, project_id),
+            (DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
         )
         rows = cursor.fetchall()
 
@@ -123,11 +119,7 @@ def list_documents(
 
 
 @router.delete("/{document_id}")
-def delete_document(
-    document_id: str,
-    user_id: str = Query(DEFAULT_USER_ID, alias="userId"),
-    project_id: str = Query(DEFAULT_PROJECT_ID, alias="projectId"),
-):
+def delete_document(document_id: str):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -135,7 +127,7 @@ def delete_document(
             FROM documents
             WHERE id = %s AND user_id = %s AND project_id = %s
             """,
-            (document_id, user_id, project_id),
+            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
         )
         row = cursor.fetchone()
 
@@ -144,7 +136,7 @@ def delete_document(
 
         cursor.execute(
             "DELETE FROM documents WHERE id = %s AND user_id = %s AND project_id = %s",
-            (document_id, user_id, project_id),
+            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
         )
 
     file_path = Path(row["file_path"])
