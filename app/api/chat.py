@@ -17,8 +17,6 @@ router = APIRouter(
 
 class AskRequest(BaseModel):
     question: str
-    user_id: str = Field(default=DEFAULT_USER_ID, alias="userId")
-    project_id: str = Field(default=DEFAULT_PROJECT_ID, alias="projectId")
     document_ids: list[str] | None = Field(default=None, alias="documentIds")
 
 
@@ -31,8 +29,8 @@ def ask_question(request: AskRequest):
     query_embedding = embedding_service.embed_query(request.question)
     chunks = retrieval_service.retrieve(
         query_embedding=query_embedding,
-        user_id=request.user_id,
-        project_id=request.project_id,
+        user_id=DEFAULT_USER_ID,
+        project_id=DEFAULT_PROJECT_ID,
         document_ids=request.document_ids,
     )
 
