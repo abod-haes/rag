@@ -11,6 +11,9 @@ from app.services.chunk_service import build_chunks_from_pages
 from app.services.embedding_service import EmbeddingService, to_pgvector
 from app.services.pdf_service import PdfExtractionError, extract_pdf_pages
 
+DEFAULT_USER_ID = "default-user"
+DEFAULT_PROJECT_ID = "default-project"
+
 router = APIRouter(
     prefix="/api/documents",
     tags=["Documents"],
@@ -21,8 +24,8 @@ router = APIRouter(
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload_document(
     file: UploadFile = File(...),
-    user_id: str = Form(..., alias="userId"),
-    project_id: str = Form(..., alias="projectId"),
+    user_id: str = Form(DEFAULT_USER_ID, alias="userId"),
+    project_id: str = Form(DEFAULT_PROJECT_ID, alias="projectId"),
 ):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -92,8 +95,8 @@ def upload_document(
 
 @router.get("")
 def list_documents(
-    user_id: str = Query(..., alias="userId"),
-    project_id: str = Query(..., alias="projectId"),
+    user_id: str = Query(DEFAULT_USER_ID, alias="userId"),
+    project_id: str = Query(DEFAULT_PROJECT_ID, alias="projectId"),
 ):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
@@ -122,8 +125,8 @@ def list_documents(
 @router.delete("/{document_id}")
 def delete_document(
     document_id: str,
-    user_id: str = Query(..., alias="userId"),
-    project_id: str = Query(..., alias="projectId"),
+    user_id: str = Query(DEFAULT_USER_ID, alias="userId"),
+    project_id: str = Query(DEFAULT_PROJECT_ID, alias="projectId"),
 ):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
