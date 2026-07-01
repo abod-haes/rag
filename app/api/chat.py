@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends
 
+from app.api.documents import DEFAULT_PROJECT_ID, DEFAULT_USER_ID
 from app.core.security import verify_api_key
 from app.services.chat_service import GeminiChatService
 from app.services.embedding_service import EmbeddingService
@@ -15,9 +16,9 @@ router = APIRouter(
 
 
 class AskRequest(BaseModel):
-    user_id: str = Field(alias="userId")
-    project_id: str = Field(alias="projectId")
     question: str
+    user_id: str = Field(default=DEFAULT_USER_ID, alias="userId")
+    project_id: str = Field(default=DEFAULT_PROJECT_ID, alias="projectId")
     document_ids: list[str] | None = Field(default=None, alias="documentIds")
 
 
