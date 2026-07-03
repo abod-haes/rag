@@ -1,4 +1,5 @@
 import shutil
+import traceback
 import uuid
 from pathlib import Path
 
@@ -86,8 +87,10 @@ def upload_document(file: UploadFile = File(...)):
         _mark_failed(document_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        _mark_failed(document_id, str(exc))
-        raise HTTPException(status_code=500, detail="Document indexing failed") from exc
+        traceback.print_exc()
+        error_message = f"{exc.__class__.__name__}: {str(exc)}"
+        _mark_failed(document_id, error_message)
+        raise HTTPException(status_code=500, detail="Document indexing failed. Check docker logs.") from exc
 
     return {"documentId": document_id, "fileName": safe_name, "status": "ready"}
 
