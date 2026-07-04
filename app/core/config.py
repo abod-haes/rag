@@ -18,8 +18,10 @@ class Settings(BaseSettings):
     upload_dir: str = "/code/app/uploads"
     top_k: int = 5
     embedding_dim: int = 768
-    max_chunk_chars: int = 3500
-    chunk_overlap_chars: int = 450
+    max_chunk_chars: int = 7000
+    chunk_overlap_chars: int = 500
+    max_chunks_per_document: int = 20
+    embedding_request_delay_seconds: float = 1.5
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
