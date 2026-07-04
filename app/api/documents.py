@@ -1,4 +1,5 @@
 import shutil
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -54,10 +55,18 @@ def upload_document(file: UploadFile = File(...)):
     try:
         pages = extract_pdf_pages(str(file_path))
         chunks = build_chunks_from_pages(pages)
+        original_chunk_count = len(chunks)
+
+        if settings.max_chunks_per_document > 0:
+            chunks = chunks[: settings.max_chunks_per_document]
+
         embedding_service = EmbeddingService()
 
         with get_connection() as (_, cursor):
-            for chunk in chunks:
+            for index, chunk in enumerate(chunks, start=1):
+                if index > 1 and settings.embedding_request_delay_seconds > 0:
+                    time.sleep(settings.embedding_request_delay_seconds)
+
                 chunk_id = str(uuid.uuid4())
                 embedding = embedding_service.embed_document(chunk["content"])
                 cursor.execute(
@@ -92,7 +101,14 @@ def upload_document(file: UploadFile = File(...)):
         _mark_failed(document_id, error_message)
         raise HTTPException(status_code=500, detail="Document indexing failed. Check docker logs.") from exc
 
-    return {"documentId": document_id, "fileName": safe_name, "status": "ready"}
+    return {
+        "documentId": document_id,
+        "fileName": safe_name,
+        "status": "ready",
+        "indexedChunks": len(chunks),
+        "totalExtractedChunks": original_chunk_count,
+        "isPartialIndex": len(chunks) < original_chunk_count,
+    }
 
 
 @router.get("")
