@@ -1,10 +1,20 @@
 from app.core.config import get_settings
 
 
+def clean_text_for_storage(text: str) -> str:
+    return (
+        text.replace("\x00", "")
+        .replace("\ufffd", " ")
+        .replace("\u0000", "")
+        .strip()
+    )
+
+
 def split_page_into_chunks(text: str, page_number: int) -> list[dict]:
     settings = get_settings()
     max_chars = settings.max_chunk_chars
     overlap = settings.chunk_overlap_chars
+    text = clean_text_for_storage(text)
 
     if max_chars <= overlap:
         raise ValueError("MAX_CHUNK_CHARS must be greater than CHUNK_OVERLAP_CHARS")
@@ -15,7 +25,7 @@ def split_page_into_chunks(text: str, page_number: int) -> list[dict]:
 
     while start < len(text):
         end = min(start + max_chars, len(text))
-        chunk_text = text[start:end].strip()
+        chunk_text = clean_text_for_storage(text[start:end])
 
         if chunk_text:
             chunks.append(
