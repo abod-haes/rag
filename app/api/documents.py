@@ -11,6 +11,7 @@ from app.core.security import verify_api_key
 from app.db.database import dict_cursor, get_connection
 from app.services.chunk_service import build_chunks_from_pages
 from app.services.embedding_service import EmbeddingService, to_pgvector
+from app.services.ocr_service import OcrExtractionError, OpenAIOcrService
 from app.services.pdf_service import PdfExtractionError, extract_pdf_pages
 
 DEFAULT_USER_ID = "default-user"
@@ -27,6 +28,7 @@ router = APIRouter(
 def upload_document(file: UploadFile = File(...)):
     user_id = DEFAULT_USER_ID
     project_id = DEFAULT_PROJECT_ID
+    extraction_method = "text"
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -53,7 +55,15 @@ def upload_document(file: UploadFile = File(...)):
         )
 
     try:
-        pages = extract_pdf_pages(str(file_path))
+        try:
+            pages = extract_pdf_pages(str(file_path))
+        except PdfExtractionError as exc:
+            if not settings.enable_ocr_fallback:
+                raise exc
+
+            extraction_method = "ocr"
+            pages = OpenAIOcrService().extract_pdf_pages(str(file_path))
+
         chunks = build_chunks_from_pages(pages)
         original_chunk_count = len(chunks)
 
@@ -95,6 +105,9 @@ def upload_document(file: UploadFile = File(...)):
     except PdfExtractionError as exc:
         _mark_failed(document_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OcrExtractionError as exc:
+        _mark_failed(document_id, str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         traceback.print_exc()
         error_message = f"{exc.__class__.__name__}: {str(exc)}"
@@ -105,6 +118,7 @@ def upload_document(file: UploadFile = File(...)):
         "documentId": document_id,
         "fileName": safe_name,
         "status": "ready",
+        "extractionMethod": extraction_method,
         "indexedChunks": len(chunks),
         "totalExtractedChunks": original_chunk_count,
         "isPartialIndex": len(chunks) < original_chunk_count,
