@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = 500
     max_chunks_per_document: int = 0
     embedding_request_delay_seconds: float = 0.0
-    enable_ocr_fallback: bool = True
+    enable_ocr_fallback: bool = False
     max_ocr_pages: int = 10
     ocr_render_zoom: float = 2.0
 
