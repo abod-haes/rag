@@ -1,13 +1,32 @@
+import re
+import unicodedata
+
 from app.core.config import get_settings
 
 
+WHITESPACE_RE = re.compile(r"\s+")
+FONT_MARKER_RE = re.compile(r"/[A-Za-z][A-Za-z0-9_-]*")
+HEX_GLYPH_RE = re.compile(r"(?:/?fe[0-9a-fA-F]{2}){3,}")
+
+
 def clean_text_for_storage(text: str) -> str:
-    return (
-        text.replace("\x00", "")
-        .replace("\ufffd", " ")
-        .replace("\u0000", "")
-        .strip()
-    )
+    text = text or ""
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace(chr(0), " ").replace("\ufffd", " ")
+    text = HEX_GLYPH_RE.sub(" ", text)
+    text = FONT_MARKER_RE.sub(" ", text)
+
+    cleaned_chars: list[str] = []
+    for char in text:
+        category = unicodedata.category(char)
+        if category.startswith("C"):
+            cleaned_chars.append(" ")
+        else:
+            cleaned_chars.append(char)
+
+    text = "".join(cleaned_chars)
+    text = WHITESPACE_RE.sub(" ", text)
+    return text.strip()
 
 
 def split_page_into_chunks(text: str, page_number: int) -> list[dict]:
