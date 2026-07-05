@@ -24,13 +24,12 @@ def extract_pdf_pages(file_path: str) -> list[dict]:
         return pages
 
     raise PdfExtractionError(
-        "No selectable text was found by the text extractors. If you can select text manually, send the PDF sample so we can tune extraction."
+        "No selectable text was found by the text extractors. OCR fallback is disabled."
     )
 
 
 def _normalize_extracted_text(text: str) -> str:
-    text = clean_text_for_storage(text or "")
-    return " ".join(text.split())
+    return clean_text_for_storage(text or "")
 
 
 def _extract_with_pymupdf(path: Path) -> list[dict]:
@@ -43,7 +42,7 @@ def _extract_with_pymupdf(path: Path) -> list[dict]:
 
     try:
         for index, page in enumerate(document, start=1):
-            text = page.get_text("text") or ""
+            text = _get_page_text_with_blocks(page)
             text = _normalize_extracted_text(text)
             if text:
                 pages.append({"page_number": index, "text": text})
@@ -51,6 +50,26 @@ def _extract_with_pymupdf(path: Path) -> list[dict]:
         document.close()
 
     return pages
+
+
+def _get_page_text_with_blocks(page: fitz.Page) -> str:
+    try:
+        blocks = page.get_text("blocks", sort=True) or []
+    except TypeError:
+        blocks = page.get_text("blocks") or []
+
+    text_blocks: list[str] = []
+    for block in blocks:
+        if len(block) < 5:
+            continue
+        block_text = str(block[4] or "").strip()
+        if block_text:
+            text_blocks.append(block_text)
+
+    if text_blocks:
+        return "\n".join(text_blocks)
+
+    return page.get_text("text") or ""
 
 
 def _extract_with_pypdf(path: Path) -> list[dict]:
