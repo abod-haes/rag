@@ -4,6 +4,7 @@ python-multipart
 pydantic-settings
 psycopg2-binary
 pypdf
+PyMuPDF
 google-genai
 openai
 python-dotenv
