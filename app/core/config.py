@@ -19,7 +19,8 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
-    openai_chat_model: str = "gpt-5.4-mini"
+    openai_chat_model: str = "gpt-4o-mini"
+    openai_ocr_model: str = "gpt-4o-mini"
 
     upload_dir: str = "/code/app/uploads"
     top_k: int = 5
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = 500
     max_chunks_per_document: int = 0
     embedding_request_delay_seconds: float = 0.0
+    enable_ocr_fallback: bool = True
+    max_ocr_pages: int = 10
+    ocr_render_zoom: float = 2.0
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
