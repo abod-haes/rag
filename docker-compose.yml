@@ -1,29 +1,37 @@
 services:
   rag-api:
-    build: .
-    container_name: rag_api
-    ports:
-      - "8000:8000"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
-      - ./app/uploads:/code/app/uploads
+      - rag_uploads:/code/app/uploads
     restart: unless-stopped
 
   postgres:
     image: pgvector/pgvector:pg17
-    container_name: rag_postgres
     environment:
-      POSTGRES_DB: rag_db
-      POSTGRES_USER: rag_user
-      POSTGRES_PASSWORD: rag_password
-    ports:
-      - "5433:5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     volumes:
       - rag_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
 volumes:
+  rag_uploads:
   rag_postgres_data:
