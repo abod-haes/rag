@@ -7,7 +7,7 @@ Independent Python FastAPI service for PDF-based Retrieval-Augmented Generation.
 - Upload PDF files per `userId` and `projectId`
 - Extract text from PDFs
 - Split text into chunks
-- Generate Gemini embeddings for chunks
+- Generate OpenAI embeddings for chunks
 - Store vectors in PostgreSQL using pgvector
 - Answer questions using only retrieved chunks from the uploaded files
 - Return sources with file name, page number, and chunk index
@@ -16,7 +16,7 @@ Independent Python FastAPI service for PDF-based Retrieval-Augmented Generation.
 
 - Python FastAPI
 - PostgreSQL + pgvector
-- Gemini API
+- OpenAI API
 - pypdf
 - Docker Compose
 
@@ -28,7 +28,7 @@ Independent Python FastAPI service for PDF-based Retrieval-Augmented Generation.
 cp .env.example .env
 ```
 
-2. Add your Gemini key and RAG API key inside `.env`.
+2. Add your OpenAI key and RAG API key inside `.env`.
 
 3. Start services:
 
@@ -55,10 +55,12 @@ X-API-Key: your-secret-key
 ```http
 GET /health
 POST /api/documents/upload
-GET /api/documents?userId=...&projectId=...
-DELETE /api/documents/{documentId}?userId=...&projectId=...
+GET /api/documents
+GET /api/documents/{documentId}/usage
+DELETE /api/documents/{documentId}
 POST /api/chat/ask
 POST /api/chat/stream
+GET /api/chat/usage?limit=50
 ```
 
 `POST /api/documents/upload` accepts multipart fields:
@@ -67,12 +69,25 @@ POST /api/chat/stream
 - `name`: optional display name; defaults to the original PDF file name
 
 `GET /api/documents` returns both the stored display `name` and original
-`fileName` with each document `id`.
+`fileName` with each document `id`. It also returns a `usage` object containing
+the embedding/OCR token counts and estimated indexing cost in USD. The same
+usage object is available from `GET /api/documents/{documentId}/usage`.
+
+`POST /api/chat/ask` returns a `usage` object next to `answer` and `sources`.
+It includes the query-embedding tokens, chat input/cached/output tokens, total
+tokens, and estimated cost in USD. `GET /api/chat/usage` returns the latest
+stored question usage records.
 
 `POST /api/chat/stream` accepts the same JSON body as `/api/chat/ask` and
 returns Server-Sent Events in this order: `started`, `sources`, one or more
-`delta` events, then `done`. Failures are emitted as an `error` event.
+`delta` events, `usage`, then `done`. Failures are emitted as an `error` event.
 
-## First MVP scope
+Token counts are read from the AI provider response. USD amounts are estimates
+calculated from the configurable `*_PRICE_PER_MILLION_TOKENS` environment
+variables. Existing records created before usage tracking have zero usage.
 
-This MVP supports text-based PDF files. Scanned/image PDFs need OCR and will be added later.
+## OCR fallback
+
+Text extraction is attempted first. Optional OpenAI OCR fallback for scanned
+PDFs can be enabled with `ENABLE_OCR_FALLBACK=true` and limited with
+`MAX_OCR_PAGES`.

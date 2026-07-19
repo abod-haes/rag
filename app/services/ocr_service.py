@@ -6,6 +6,7 @@ from openai import OpenAI
 
 from app.core.config import get_settings
 from app.services.chunk_service import clean_text_for_storage
+from app.services.usage_service import TokenUsage, extract_openai_usage
 
 
 class OcrExtractionError(Exception):
@@ -18,9 +19,11 @@ class OpenAIOcrService:
         if not self.settings.openai_api_key:
             raise OcrExtractionError("OPENAI_API_KEY is required for OCR fallback")
         self.client = OpenAI(api_key=self.settings.openai_api_key)
+        self.last_usage = TokenUsage()
 
     def extract_pdf_pages(self, file_path: str) -> list[dict]:
         pages: list[dict] = []
+        self.last_usage = TokenUsage()
 
         try:
             document = fitz.open(file_path)
@@ -77,6 +80,10 @@ class OpenAIOcrService:
                     ],
                 }
             ],
+        )
+
+        self.last_usage = self.last_usage + extract_openai_usage(
+            getattr(response, "usage", None)
         )
 
         text = getattr(response, "output_text", None)

@@ -1,4 +1,6 @@
+from decimal import Decimal
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,8 +21,16 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
-    openai_chat_model: str = "gpt-4o-mini"
+    openai_chat_model: str = "gpt-5.4-mini"
     openai_ocr_model: str = "gpt-4o-mini"
+
+    openai_embedding_price_per_million_tokens: Decimal = Decimal("0.02")
+    openai_chat_input_price_per_million_tokens: Decimal = Decimal("0.75")
+    openai_chat_cached_input_price_per_million_tokens: Decimal = Decimal("0.075")
+    openai_chat_output_price_per_million_tokens: Decimal = Decimal("4.50")
+    openai_ocr_input_price_per_million_tokens: Decimal = Decimal("0.15")
+    openai_ocr_cached_input_price_per_million_tokens: Decimal = Decimal("0.075")
+    openai_ocr_output_price_per_million_tokens: Decimal = Decimal("0.60")
 
     upload_dir: str = "/code/app/uploads"
     top_k: int = 5

@@ -1,9 +1,18 @@
+from dataclasses import dataclass
+
 import numpy as np
 from google import genai
 from google.genai import types
 from openai import OpenAI
 
 from app.core.config import get_settings
+from app.services.usage_service import TokenUsage, extract_openai_usage
+
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    values: list[float]
+    usage: TokenUsage
 
 
 class EmbeddingService:
@@ -25,18 +34,24 @@ class EmbeddingService:
             raise RuntimeError("AI_PROVIDER must be either 'openai' or 'gemini'")
 
     def embed_document(self, text: str) -> list[float]:
+        return self.embed_document_with_usage(text).values
+
+    def embed_document_with_usage(self, text: str) -> EmbeddingResult:
         return self._embed(text=text, task_type="RETRIEVAL_DOCUMENT")
 
     def embed_query(self, text: str) -> list[float]:
+        return self.embed_query_with_usage(text).values
+
+    def embed_query_with_usage(self, text: str) -> EmbeddingResult:
         return self._embed(text=text, task_type="RETRIEVAL_QUERY")
 
-    def _embed(self, text: str, task_type: str) -> list[float]:
+    def _embed(self, text: str, task_type: str) -> EmbeddingResult:
         if self.provider == "openai":
             return self._embed_openai(text)
 
         return self._embed_gemini(text=text, task_type=task_type)
 
-    def _embed_openai(self, text: str) -> list[float]:
+    def _embed_openai(self, text: str) -> EmbeddingResult:
         assert self.openai_client is not None
 
         response = self.openai_client.embeddings.create(
@@ -46,9 +61,12 @@ class EmbeddingService:
             encoding_format="float",
         )
 
-        return self._normalize(response.data[0].embedding)
+        return EmbeddingResult(
+            values=self._normalize(response.data[0].embedding),
+            usage=extract_openai_usage(getattr(response, "usage", None)),
+        )
 
-    def _embed_gemini(self, text: str, task_type: str) -> list[float]:
+    def _embed_gemini(self, text: str, task_type: str) -> EmbeddingResult:
         assert self.gemini_client is not None
 
         result = self.gemini_client.models.embed_content(
@@ -64,7 +82,10 @@ class EmbeddingService:
             raise RuntimeError("Gemini returned no embeddings")
 
         values = result.embeddings[0].values
-        return self._normalize(values)
+        return EmbeddingResult(
+            values=self._normalize(values),
+            usage=TokenUsage(),
+        )
 
     @staticmethod
     def _normalize(values: list[float]) -> list[float]:
