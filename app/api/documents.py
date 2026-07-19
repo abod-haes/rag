@@ -4,7 +4,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.core.config import get_settings
 from app.core.security import verify_api_key
@@ -25,7 +25,10 @@ router = APIRouter(
 
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-def upload_document(file: UploadFile = File(...)):
+def upload_document(
+    file: UploadFile = File(...),
+    name: str | None = Form(default=None),
+):
     user_id = DEFAULT_USER_ID
     project_id = DEFAULT_PROJECT_ID
     extraction_method = "text"
@@ -39,6 +42,12 @@ def upload_document(file: UploadFile = File(...)):
 
     document_id = str(uuid.uuid4())
     safe_name = Path(file.filename).name
+    document_name = (name or "").strip() or safe_name
+    if len(document_name) > 255:
+        raise HTTPException(
+            status_code=400,
+            detail="Document name must be 255 characters or fewer",
+        )
     stored_name = f"{document_id}_{safe_name}"
     file_path = upload_dir / stored_name
 
@@ -48,10 +57,19 @@ def upload_document(file: UploadFile = File(...)):
     with get_connection() as (_, cursor):
         cursor.execute(
             """
-            INSERT INTO documents (id, user_id, project_id, file_name, file_path, status)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO documents
+            (id, user_id, project_id, name, file_name, file_path, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            (document_id, user_id, project_id, safe_name, str(file_path), "processing"),
+            (
+                document_id,
+                user_id,
+                project_id,
+                document_name,
+                safe_name,
+                str(file_path),
+                "processing",
+            ),
         )
 
     try:
@@ -116,6 +134,7 @@ def upload_document(file: UploadFile = File(...)):
 
     return {
         "documentId": document_id,
+        "name": document_name,
         "fileName": safe_name,
         "status": "ready",
         "extractionMethod": extraction_method,
@@ -130,7 +149,13 @@ def list_documents():
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
-            SELECT id::text, file_name, status, error_message, created_at
+            SELECT
+                id::text,
+                COALESCE(NULLIF(BTRIM(name), ''), file_name) AS name,
+                file_name,
+                status,
+                error_message,
+                created_at
             FROM documents
             WHERE user_id = %s AND project_id = %s
             ORDER BY created_at DESC
@@ -142,6 +167,7 @@ def list_documents():
     return [
         {
             "id": row["id"],
+            "name": row["name"],
             "fileName": row["file_name"],
             "status": row["status"],
             "errorMessage": row["error_message"],

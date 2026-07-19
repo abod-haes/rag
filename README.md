@@ -58,7 +58,20 @@ POST /api/documents/upload
 GET /api/documents?userId=...&projectId=...
 DELETE /api/documents/{documentId}?userId=...&projectId=...
 POST /api/chat/ask
+POST /api/chat/stream
 ```
+
+`POST /api/documents/upload` accepts multipart fields:
+
+- `file`: required PDF file
+- `name`: optional display name; defaults to the original PDF file name
+
+`GET /api/documents` returns both the stored display `name` and original
+`fileName` with each document `id`.
+
+`POST /api/chat/stream` accepts the same JSON body as `/api/chat/ask` and
+returns Server-Sent Events in this order: `started`, `sources`, one or more
+`delta` events, then `done`. Failures are emitted as an `error` event.
 
 ## First MVP scope
 

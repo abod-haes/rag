@@ -2,11 +2,13 @@ def build_rag_prompt(question: str, chunks: list[dict]) -> str:
     context_parts: list[str] = []
 
     for index, chunk in enumerate(chunks, start=1):
+        document_name = chunk.get("name") or chunk["file_name"]
         context_parts.append(
             "\n".join(
                 [
                     f"[Source {index}]",
-                    f"File: {chunk['file_name']}",
+                    f"Document: {document_name}",
+                    f"Original file: {chunk['file_name']}",
                     f"Page: {chunk['page_number']}",
                     f"Chunk: {chunk['chunk_index']}",
                     "Text:",

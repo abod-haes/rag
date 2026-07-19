@@ -4,12 +4,20 @@ CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY,
     user_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
+    name TEXT,
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
     status TEXT NOT NULL,
     error_message TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE documents
+ADD COLUMN IF NOT EXISTS name TEXT;
+
+UPDATE documents
+SET name = file_name
+WHERE name IS NULL OR BTRIM(name) = '';
 
 CREATE TABLE IF NOT EXISTS document_chunks (
     id UUID PRIMARY KEY,

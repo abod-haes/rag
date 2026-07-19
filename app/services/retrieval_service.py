@@ -23,6 +23,7 @@ class RetrievalService:
             sql = """
                 SELECT
                     dc.document_id::text,
+                    COALESCE(NULLIF(BTRIM(d.name), ''), d.file_name) AS name,
                     d.file_name,
                     dc.content,
                     dc.page_number,
@@ -41,6 +42,7 @@ class RetrievalService:
             sql = """
                 SELECT
                     dc.document_id::text,
+                    COALESCE(NULLIF(BTRIM(d.name), ''), d.file_name) AS name,
                     d.file_name,
                     dc.content,
                     dc.page_number,
@@ -65,6 +67,7 @@ class RetrievalService:
             results.append(
                 {
                     "document_id": row["document_id"],
+                    "name": row["name"],
                     "file_name": row["file_name"],
                     "content": row["content"],
                     "page_number": row["page_number"],

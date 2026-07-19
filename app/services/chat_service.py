@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 from google import genai
 from openai import OpenAI
 
@@ -28,6 +30,16 @@ class GeminiChatService:
 
         return self._generate_gemini(prompt)
 
+    def stream_answer(self, prompt: str) -> Iterator[str]:
+        if self.provider == "openai":
+            yield from self._stream_openai(prompt)
+            return
+
+        # Preserve Gemini compatibility even when native streaming is unavailable.
+        answer = self._generate_gemini(prompt)
+        if answer:
+            yield answer
+
     def _generate_openai(self, prompt: str) -> str:
         assert self.openai_client is not None
 
@@ -41,6 +53,28 @@ class GeminiChatService:
             return "لا يوجد جواب واضح في الملفات المرفوعة."
 
         return text.strip()
+
+    def _stream_openai(self, prompt: str) -> Iterator[str]:
+        assert self.openai_client is not None
+
+        stream = self.openai_client.responses.create(
+            model=self.settings.openai_chat_model,
+            input=prompt,
+            stream=True,
+        )
+
+        try:
+            for event in stream:
+                if getattr(event, "type", "") != "response.output_text.delta":
+                    continue
+
+                delta = getattr(event, "delta", None)
+                if delta:
+                    yield delta
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
 
     def _generate_gemini(self, prompt: str) -> str:
         assert self.gemini_client is not None
