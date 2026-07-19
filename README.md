@@ -78,6 +78,10 @@ It includes the query-embedding tokens, chat input/cached/output tokens, total
 tokens, and estimated cost in USD. `GET /api/chat/usage` returns the latest
 stored question usage records.
 
+Answers use the retrieved chunks as textbook material: the model can apply a
+rule or worked-example pattern to a new question even when the exact exercise
+and final answer do not appear verbatim in the PDF.
+
 `POST /api/chat/stream` accepts the same JSON body as `/api/chat/ask` and
 returns Server-Sent Events in this order: `started`, `sources`, one or more
 `delta` events, `usage`, then `done`. Failures are emitted as an `error` event.
