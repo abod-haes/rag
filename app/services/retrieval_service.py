@@ -1,5 +1,4 @@
 import re
-from collections.abc import Iterable
 
 from app.core.config import get_settings
 from app.db.database import dict_cursor, get_connection
@@ -46,9 +45,9 @@ class RetrievalService:
         self,
         *,
         query_embedding: list[float],
-        query_text: str,
         user_id: str,
         project_id: str,
+        query_text: str = "",
         document_ids: list[str] | None = None,
         top_k: int | None = None,
     ) -> list[dict]:
@@ -120,6 +119,7 @@ class RetrievalService:
             JOIN documents d ON d.id = dc.document_id
             WHERE dc.user_id = %s
               AND dc.project_id = %s
+              AND d.status = 'ready'
               {document_filter}
             ORDER BY dc.embedding <=> %s::vector
             LIMIT %s;
@@ -139,11 +139,13 @@ class RetrievalService:
         document_ids: list[str] | None,
         limit: int,
     ) -> list[dict]:
-        if not _extract_terms(query_text):
+        terms = _extract_terms(query_text)
+        if not terms:
             return []
 
+        lexical_query = " | ".join(sorted(terms))
         document_filter = ""
-        params: list = [query_text, query_vector, user_id, project_id]
+        params: list = [lexical_query, query_vector, user_id, project_id]
         if document_ids:
             document_filter = "AND dc.document_id = ANY(%s::uuid[])"
             params.append(document_ids)
@@ -151,7 +153,7 @@ class RetrievalService:
 
         sql = f"""
             WITH query_data AS (
-                SELECT plainto_tsquery('simple', %s) AS query
+                SELECT to_tsquery('simple', %s) AS query
             )
             SELECT
                 dc.document_id::text,
@@ -169,6 +171,7 @@ class RetrievalService:
             CROSS JOIN query_data
             WHERE dc.user_id = %s
               AND dc.project_id = %s
+              AND d.status = 'ready'
               {document_filter}
               AND dc.search_vector @@ query_data.query
             ORDER BY lexical_score DESC
@@ -290,6 +293,7 @@ class RetrievalService:
             JOIN documents d ON d.id = dc.document_id
             WHERE dc.user_id = %s
               AND dc.project_id = %s
+              AND d.status = 'ready'
               AND (dc.document_id::text || ':' || dc.chunk_index::text) = ANY(%s::text[]);
         """
 
