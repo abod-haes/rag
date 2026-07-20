@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # Conversation memory used only when a conversationId is supplied or created.
     conversation_history_messages: int = 6
 
+    # Basic per-process protection. Use a shared gateway/Redis limiter for replicas.
+    rate_limit_requests_per_minute: int = 120
+
     enable_ocr_fallback: bool = False
     max_ocr_pages: int = 10
     ocr_render_zoom: float = 2.0
