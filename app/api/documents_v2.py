@@ -1,5 +1,4 @@
 import hashlib
-import shutil
 import uuid
 from pathlib import Path
 
@@ -14,12 +13,9 @@ from fastapi import (
     status,
 )
 
-from app.api.documents import (
-    DEFAULT_PROJECT_ID,
-    DEFAULT_USER_ID,
-    _build_document_usage,
-)
+from app.api.documents import _build_document_usage
 from app.core.config import get_settings
+from app.core.request_scope import RequestScope, get_request_scope
 from app.core.security import verify_api_key
 from app.db.database import dict_cursor, get_connection
 from app.services.document_indexing_service import (
@@ -42,13 +38,19 @@ READ_SIZE = 1024 * 1024
 def upload_document(
     file: UploadFile = File(...),
     name: str | None = Form(default=None),
+    scope: RequestScope = Depends(get_request_scope),
 ):
-    document = _create_document_record(file=file, name=name, initial_status="processing")
+    document = _create_document_record(
+        file=file,
+        name=name,
+        initial_status="processing",
+        scope=scope,
+    )
     try:
         result = DocumentIndexingService().index_document(
             document_id=document["documentId"],
-            user_id=DEFAULT_USER_ID,
-            project_id=DEFAULT_PROJECT_ID,
+            user_id=scope.user_id,
+            project_id=scope.project_id,
             file_path=document["filePath"],
         )
     except (PdfExtractionError, OcrExtractionError) as exc:
@@ -67,12 +69,20 @@ def upload_document_async(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     name: str | None = Form(default=None),
+    scope: RequestScope = Depends(get_request_scope),
 ):
-    document = _create_document_record(file=file, name=name, initial_status="queued")
+    document = _create_document_record(
+        file=file,
+        name=name,
+        initial_status="queued",
+        scope=scope,
+    )
     background_tasks.add_task(
         _run_background_indexing,
         document["documentId"],
         document["filePath"],
+        scope.user_id,
+        scope.project_id,
     )
     return {
         "documentId": document["documentId"],
@@ -84,7 +94,11 @@ def upload_document_async(
 
 
 @router.post("/{document_id}/retry", status_code=status.HTTP_202_ACCEPTED)
-def retry_document(document_id: str, background_tasks: BackgroundTasks):
+def retry_document(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    scope: RequestScope = Depends(get_request_scope),
+):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -92,7 +106,7 @@ def retry_document(document_id: str, background_tasks: BackgroundTasks):
             FROM documents
             WHERE id = %s AND user_id = %s AND project_id = %s
             """,
-            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
+            (document_id, scope.user_id, scope.project_id),
         )
         row = cursor.fetchone()
         if not row:
@@ -120,6 +134,8 @@ def retry_document(document_id: str, background_tasks: BackgroundTasks):
         _run_background_indexing,
         document_id,
         row["file_path"],
+        scope.user_id,
+        scope.project_id,
     )
     return {
         "documentId": document_id,
@@ -129,7 +145,7 @@ def retry_document(document_id: str, background_tasks: BackgroundTasks):
 
 
 @router.get("")
-def list_documents():
+def list_documents(scope: RequestScope = Depends(get_request_scope)):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -156,7 +172,7 @@ def list_documents():
             WHERE user_id = %s AND project_id = %s
             ORDER BY created_at DESC
             """,
-            (DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
+            (scope.user_id, scope.project_id),
         )
         rows = cursor.fetchall()
 
@@ -164,8 +180,11 @@ def list_documents():
 
 
 @router.get("/{document_id}/status")
-def get_document_status(document_id: str):
-    row = _get_document(document_id)
+def get_document_status(
+    document_id: str,
+    scope: RequestScope = Depends(get_request_scope),
+):
+    row = _get_document(document_id, scope)
     return {
         "documentId": row["id"],
         "name": row["name"],
@@ -185,8 +204,11 @@ def get_document_status(document_id: str):
 
 
 @router.get("/{document_id}/usage")
-def get_document_usage(document_id: str):
-    row = _get_document(document_id)
+def get_document_usage(
+    document_id: str,
+    scope: RequestScope = Depends(get_request_scope),
+):
+    row = _get_document(document_id, scope)
     return {
         "id": row["id"],
         "name": row["name"],
@@ -196,7 +218,10 @@ def get_document_usage(document_id: str):
 
 
 @router.delete("/{document_id}")
-def delete_document(document_id: str):
+def delete_document(
+    document_id: str,
+    scope: RequestScope = Depends(get_request_scope),
+):
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -204,7 +229,7 @@ def delete_document(document_id: str):
             FROM documents
             WHERE id = %s AND user_id = %s AND project_id = %s
             """,
-            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
+            (document_id, scope.user_id, scope.project_id),
         )
         row = cursor.fetchone()
         if not row:
@@ -212,7 +237,7 @@ def delete_document(document_id: str):
 
         cursor.execute(
             "DELETE FROM documents WHERE id = %s AND user_id = %s AND project_id = %s",
-            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
+            (document_id, scope.user_id, scope.project_id),
         )
 
     file_path = Path(row["file_path"])
@@ -226,6 +251,7 @@ def _create_document_record(
     file: UploadFile,
     name: str | None,
     initial_status: str,
+    scope: RequestScope,
 ) -> dict:
     settings = get_settings()
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -243,18 +269,16 @@ def _create_document_record(
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / f"{document_id}_{safe_name}"
-    file_hash, file_size = _save_and_hash_upload(file=file, file_path=file_path)
-
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
-    if file_size > max_bytes:
-        file_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=413,
-            detail=f"PDF exceeds the {settings.max_upload_size_mb} MB upload limit",
-        )
+    file_hash = _save_and_hash_upload(
+        file=file,
+        file_path=file_path,
+        max_bytes=max_bytes,
+        max_upload_size_mb=settings.max_upload_size_mb,
+    )
 
     if not settings.allow_duplicate_documents:
-        duplicate = _find_duplicate_document(file_hash)
+        duplicate = _find_duplicate_document(file_hash, scope)
         if duplicate:
             file_path.unlink(missing_ok=True)
             raise HTTPException(
@@ -285,8 +309,8 @@ def _create_document_record(
             """,
             (
                 document_id,
-                DEFAULT_USER_ID,
-                DEFAULT_PROJECT_ID,
+                scope.user_id,
+                scope.project_id,
                 document_name,
                 safe_name,
                 str(file_path),
@@ -304,7 +328,13 @@ def _create_document_record(
     }
 
 
-def _save_and_hash_upload(*, file: UploadFile, file_path: Path) -> tuple[str, int]:
+def _save_and_hash_upload(
+    *,
+    file: UploadFile,
+    file_path: Path,
+    max_bytes: int,
+    max_upload_size_mb: int,
+) -> str:
     digest = hashlib.sha256()
     total_size = 0
     header = b""
@@ -315,11 +345,16 @@ def _save_and_hash_upload(*, file: UploadFile, file_path: Path) -> tuple[str, in
                 chunk = file.file.read(READ_SIZE)
                 if not chunk:
                     break
+                total_size += len(chunk)
+                if total_size > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"PDF exceeds the {max_upload_size_mb} MB upload limit",
+                    )
                 if len(header) < 5:
                     header += chunk[: 5 - len(header)]
                 digest.update(chunk)
                 output.write(chunk)
-                total_size += len(chunk)
     except Exception:
         file_path.unlink(missing_ok=True)
         raise
@@ -328,10 +363,13 @@ def _save_and_hash_upload(*, file: UploadFile, file_path: Path) -> tuple[str, in
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Uploaded file is not a valid PDF")
 
-    return digest.hexdigest(), total_size
+    return digest.hexdigest()
 
 
-def _find_duplicate_document(file_hash: str) -> dict | None:
+def _find_duplicate_document(
+    file_hash: str,
+    scope: RequestScope,
+) -> dict | None:
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -346,17 +384,22 @@ def _find_duplicate_document(file_hash: str) -> dict | None:
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            (DEFAULT_USER_ID, DEFAULT_PROJECT_ID, file_hash),
+            (scope.user_id, scope.project_id, file_hash),
         )
         return cursor.fetchone()
 
 
-def _run_background_indexing(document_id: str, file_path: str) -> None:
+def _run_background_indexing(
+    document_id: str,
+    file_path: str,
+    user_id: str,
+    project_id: str,
+) -> None:
     try:
         DocumentIndexingService().index_document(
             document_id=document_id,
-            user_id=DEFAULT_USER_ID,
-            project_id=DEFAULT_PROJECT_ID,
+            user_id=user_id,
+            project_id=project_id,
             file_path=file_path,
         )
     except Exception:
@@ -364,7 +407,7 @@ def _run_background_indexing(document_id: str, file_path: str) -> None:
         return
 
 
-def _get_document(document_id: str) -> dict:
+def _get_document(document_id: str, scope: RequestScope) -> dict:
     with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
         cursor.execute(
             """
@@ -390,7 +433,7 @@ def _get_document(document_id: str) -> dict:
             FROM documents
             WHERE id = %s AND user_id = %s AND project_id = %s
             """,
-            (document_id, DEFAULT_USER_ID, DEFAULT_PROJECT_ID),
+            (document_id, scope.user_id, scope.project_id),
         )
         row = cursor.fetchone()
     if not row:
