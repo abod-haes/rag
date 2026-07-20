@@ -7,6 +7,10 @@ from app.api.chat_v2 import router as chat_router
 from app.api.documents_v2 import router as documents_router
 from app.api.health import router as health_router
 from app.core.config import settings
+from app.core.http_middleware import (
+    InMemoryRateLimitMiddleware,
+    RequestObservabilityMiddleware,
+)
 from app.db.database import init_db
 
 
@@ -17,6 +21,8 @@ def create_app() -> FastAPI:
         description="Independent RAG API for PDF-based question answering.",
     )
 
+    app.add_middleware(RequestObservabilityMiddleware)
+    app.add_middleware(InMemoryRateLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
