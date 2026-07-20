@@ -31,12 +31,12 @@ def clean_text_for_storage(text: str) -> str:
             continue
 
         category = unicodedata.category(char)
-        if category.startswith("C"):
-            cleaned_chars.append(" ")
-        else:
-            cleaned_chars.append(char)
+        cleaned_chars.append(" " if category.startswith("C") else char)
 
-    normalized_lines = [SPACE_RE.sub(" ", line).strip() for line in "".join(cleaned_chars).split("\n")]
+    normalized_lines = [
+        SPACE_RE.sub(" ", line).strip()
+        for line in "".join(cleaned_chars).split("\n")
+    ]
     normalized_text = "\n".join(normalized_lines)
     normalized_text = MULTI_NEWLINE_RE.sub("\n\n", normalized_text)
     return normalized_text.strip()
@@ -77,8 +77,15 @@ def split_page_into_chunks(text: str, page_number: int) -> list[dict]:
                 )
                 local_index += 1
 
-            current_units = _tail_for_overlap(current_units, overlap_tokens)
-            current_tokens = sum(estimate_token_count(item) for item in current_units)
+            available_overlap = max(0, max_tokens - unit_tokens - 1)
+            current_units = _tail_for_overlap(
+                current_units,
+                min(overlap_tokens, available_overlap),
+            )
+            current_tokens = sum(
+                estimate_token_count(item) for item in current_units
+            )
+            separator_tokens = 1 if current_units else 0
 
         current_units.append(unit)
         current_tokens += separator_tokens + unit_tokens
@@ -112,7 +119,9 @@ def build_chunks_from_pages(pages: list[dict]) -> list[dict]:
 
 
 def _build_semantic_units(text: str, max_tokens: int) -> list[str]:
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    paragraphs = [
+        part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()
+    ]
     if len(paragraphs) <= 1:
         line_units = [line.strip() for line in text.split("\n") if line.strip()]
         if len(line_units) > 1:
@@ -124,7 +133,11 @@ def _build_semantic_units(text: str, max_tokens: int) -> list[str]:
             units.append(paragraph)
             continue
 
-        sentences = [part.strip() for part in SENTENCE_SPLIT_RE.split(paragraph) if part.strip()]
+        sentences = [
+            part.strip()
+            for part in SENTENCE_SPLIT_RE.split(paragraph)
+            if part.strip()
+        ]
         if len(sentences) <= 1:
             units.extend(_split_by_tokens(paragraph, max_tokens))
             continue
@@ -157,7 +170,10 @@ def _build_semantic_units(text: str, max_tokens: int) -> list[str]:
 
 def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
     tokens = TOKEN_RE.findall(text)
-    return [" ".join(tokens[index : index + max_tokens]) for index in range(0, len(tokens), max_tokens)]
+    return [
+        " ".join(tokens[index : index + max_tokens])
+        for index in range(0, len(tokens), max_tokens)
+    ]
 
 
 def _tail_for_overlap(units: list[str], overlap_tokens: int) -> list[str]:
@@ -165,11 +181,20 @@ def _tail_for_overlap(units: list[str], overlap_tokens: int) -> list[str]:
         return []
 
     tail: list[str] = []
-    token_total = 0
+    remaining = overlap_tokens
     for unit in reversed(units):
-        tail.insert(0, unit)
-        token_total += estimate_token_count(unit)
-        if token_total >= overlap_tokens:
+        tokens = TOKEN_RE.findall(unit)
+        if not tokens:
+            continue
+
+        if len(tokens) <= remaining:
+            tail.insert(0, unit)
+            remaining -= len(tokens)
+        else:
+            tail.insert(0, " ".join(tokens[-remaining:]))
+            remaining = 0
+
+        if remaining <= 0:
             break
 
     return tail
