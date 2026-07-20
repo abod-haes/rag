@@ -67,7 +67,8 @@ def _get_page_text_with_blocks(page: fitz.Page) -> str:
             text_blocks.append(block_text)
 
     if text_blocks:
-        return "\n".join(text_blocks)
+        # Keep visual blocks as semantic paragraph boundaries for chunking.
+        return "\n\n".join(text_blocks)
 
     return page.get_text("text") or ""
 
