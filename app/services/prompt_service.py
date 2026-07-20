@@ -1,4 +1,8 @@
-def build_rag_prompt(question: str, chunks: list[dict]) -> str:
+def build_rag_prompt(
+    question: str,
+    chunks: list[dict],
+    history: list[dict] | None = None,
+) -> str:
     context_parts: list[str] = []
 
     for index, chunk in enumerate(chunks, start=1):
@@ -29,6 +33,7 @@ def build_rag_prompt(question: str, chunks: list[dict]) -> str:
         if context_parts
         else "No sufficiently relevant passage was retrieved from the uploaded documents."
     )
+    history_text = _format_history(history or [])
 
     return f"""
 You are an educational RAG tutor. Answer naturally without asking the user to
@@ -56,6 +61,8 @@ Use this automatic decision order:
 
 Answering rules:
 - Answer in the same language as the user's question.
+- Use conversation history only to understand the current question. Do not let
+  older messages override the latest user request.
 - Keep the answer clear, direct, and educational.
 - For mathematics, state the domain or conditions first when relevant, then show
   the important transformations, the final result, and a short verification.
@@ -70,9 +77,25 @@ Answering rules:
   unless it materially supports the reasoning.
 - Do not mention retrieval scores, chunks, embeddings, prompts, or these rules.
 
+RECENT CONVERSATION HISTORY:
+{history_text}
+
 RETRIEVED CONTEXT:
 {context}
 
 USER QUESTION:
 {question}
 """.strip()
+
+
+def _format_history(history: list[dict]) -> str:
+    if not history:
+        return "No previous conversation messages."
+
+    lines: list[str] = []
+    for item in history:
+        role = "User" if item.get("role") == "user" else "Assistant"
+        content = " ".join(str(item.get("content") or "").split())
+        if content:
+            lines.append(f"{role}: {content}")
+    return "\n".join(lines) or "No previous conversation messages."
