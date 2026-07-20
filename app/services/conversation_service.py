@@ -18,6 +18,7 @@ class ConversationService:
         first_question: str,
     ) -> str:
         if conversation_id:
+            normalized_id = _normalize_uuid(conversation_id)
             with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
                 cursor.execute(
                     """
@@ -25,7 +26,7 @@ class ConversationService:
                     FROM chat_conversations
                     WHERE id = %s AND user_id = %s AND project_id = %s
                     """,
-                    (conversation_id, user_id, project_id),
+                    (normalized_id, user_id, project_id),
                 )
                 row = cursor.fetchone()
             if not row:
@@ -52,6 +53,7 @@ class ConversationService:
         project_id: str,
         limit: int = 6,
     ) -> list[dict]:
+        normalized_id = _normalize_uuid(conversation_id)
         with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
             cursor.execute(
                 """
@@ -68,7 +70,7 @@ class ConversationService:
                 ORDER BY created_at DESC
                 LIMIT %s
                 """,
-                (conversation_id, user_id, project_id, limit),
+                (normalized_id, user_id, project_id, limit),
             )
             rows = list(cursor.fetchall())
 
@@ -91,6 +93,10 @@ class ConversationService:
         content: str,
         sources: list[dict] | None = None,
     ) -> None:
+        if role not in {"user", "assistant"}:
+            raise ValueError("Conversation role must be user or assistant")
+
+        normalized_id = _normalize_uuid(conversation_id)
         message_id = str(uuid.uuid4())
         with get_connection() as (_, cursor):
             cursor.execute(
@@ -100,7 +106,7 @@ class ConversationService:
                 """,
                 (
                     message_id,
-                    conversation_id,
+                    normalized_id,
                     role,
                     content,
                     json.dumps(sources or [], ensure_ascii=False),
@@ -112,7 +118,7 @@ class ConversationService:
                 SET updated_at = NOW()
                 WHERE id = %s
                 """,
-                (conversation_id,),
+                (normalized_id,),
             )
 
     def list_conversations(
@@ -144,6 +150,13 @@ class ConversationService:
             }
             for row in rows
         ]
+
+
+def _normalize_uuid(value: str) -> str:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ConversationNotFoundError("Invalid conversationId") from exc
 
 
 def _build_title(question: str) -> str:
