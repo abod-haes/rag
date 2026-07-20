@@ -96,3 +96,27 @@ CREATE TABLE IF NOT EXISTS chat_usage (
 
 CREATE INDEX IF NOT EXISTS idx_chat_usage_project_user_created
 ON chat_usage(project_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    id UUID PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    title TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id UUID PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content TEXT NOT NULL,
+    sources JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_scope_updated
+ON chat_conversations(user_id, project_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created
+ON chat_messages(conversation_id, created_at ASC);
