@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python sources
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/database
+        run: python -m compileall -q app scripts
+
+      - name: Validate imports
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/database
+          OPENAI_API_KEY: test-key
+        run: |
+          python - <<'PY'
+          from app.core.config import get_settings
+          from app.services.chunk_service import split_page_into_chunks
+          from app.services.prompt_service import build_rag_prompt
+
+          settings = get_settings()
+          assert settings.max_chunk_tokens > settings.chunk_overlap_tokens
+          chunks = split_page_into_chunks("عنوان\n\nهذه فقرة تجريبية.", 1)
+          assert chunks and chunks[0]["page_number"] == 1
+          prompt = build_rag_prompt("اشرح", [])
+          assert "USER QUESTION" in prompt
+          print("Validation passed")
+          PY
