@@ -21,7 +21,8 @@ def create_app() -> FastAPI:
         description="Independent RAG API for PDF-based question answering.",
     )
 
-    app.add_middleware(RequestObservabilityMiddleware)
+    # Middleware is registered inner-to-outer so observability also covers
+    # CORS and rate-limit responses.
     app.add_middleware(InMemoryRateLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestObservabilityMiddleware)
 
     @app.on_event("startup")
     def on_startup() -> None:
