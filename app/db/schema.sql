@@ -7,7 +7,11 @@ CREATE TABLE IF NOT EXISTS documents (
     name TEXT,
     file_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    file_hash TEXT,
     status TEXT NOT NULL,
+    indexing_stage TEXT,
+    indexed_chunks INT NOT NULL DEFAULT 0,
+    total_chunks INT NOT NULL DEFAULT 0,
     error_message TEXT,
     ai_provider TEXT,
     embedding_model TEXT,
@@ -17,11 +21,16 @@ CREATE TABLE IF NOT EXISTS documents (
     ocr_cached_input_tokens BIGINT NOT NULL DEFAULT 0,
     ocr_output_tokens BIGINT NOT NULL DEFAULT 0,
     estimated_cost_usd NUMERIC(18, 10) NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
-ALTER TABLE documents
-ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_hash TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS indexing_stage TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS indexed_chunks INT NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS total_chunks INT NOT NULL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
 
 UPDATE documents
 SET name = file_name
@@ -60,6 +69,9 @@ GENERATED ALWAYS AS (to_tsvector('simple', COALESCE(content, ''))) STORED;
 
 CREATE INDEX IF NOT EXISTS idx_documents_project_user
 ON documents(project_id, user_id);
+
+CREATE INDEX IF NOT EXISTS idx_documents_scope_hash
+ON documents(user_id, project_id, file_hash);
 
 CREATE INDEX IF NOT EXISTS idx_chunks_project_user
 ON document_chunks(project_id, user_id);
