@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     neighbor_window: int = 1
     max_context_chunks: int = 12
 
+    # Conversation memory used only when a conversationId is supplied or created.
+    conversation_history_messages: int = 6
+
     enable_ocr_fallback: bool = False
     max_ocr_pages: int = 10
     ocr_render_zoom: float = 2.0
