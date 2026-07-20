@@ -1,0 +1,47 @@
+[
+  {
+    "id": "direct-book-answer",
+    "enabled": false,
+    "question": "ما هي نقاط التعلم الأساسية في وحدة المتتاليات؟",
+    "documentIds": [
+      "replace-with-a-real-document-id"
+    ],
+    "expectedKeywords": [
+      "المتتاليات الحسابية",
+      "المتتاليات الهندسية"
+    ],
+    "expectedSourcePages": [
+      2
+    ],
+    "forbiddenPhrases": [],
+    "shouldAnswer": true
+  },
+  {
+    "id": "derived-math-answer",
+    "enabled": false,
+    "question": "اعطيني مثالاً جديداً على متتالية هندسية واشرح طريقة إيجاد أساسها.",
+    "documentIds": [
+      "replace-with-a-real-document-id"
+    ],
+    "expectedKeywords": [
+      "الأساس"
+    ],
+    "expectedSourcePages": [],
+    "forbiddenPhrases": [
+      "لا أستطيع"
+    ],
+    "shouldAnswer": true
+  },
+  {
+    "id": "general-knowledge-fallback",
+    "enabled": false,
+    "question": "ما الفرق العام بين التشفير المتماثل وغير المتماثل؟",
+    "documentIds": [],
+    "expectedKeywords": [
+      "مفتاح"
+    ],
+    "expectedSourcePages": [],
+    "forbiddenPhrases": [],
+    "shouldAnswer": true
+  }
+]
