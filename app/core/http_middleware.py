@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import threading
@@ -14,6 +15,7 @@ from app.core.request_scope import DEFAULT_PROJECT_ID, DEFAULT_USER_ID
 
 
 logger = logging.getLogger("rag.http")
+logger.setLevel(logging.INFO)
 
 
 class RequestObservabilityMiddleware(BaseHTTPMiddleware):
@@ -75,7 +77,8 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
         user_id = request.headers.get("X-User-Id") or DEFAULT_USER_ID
         project_id = request.headers.get("X-Project-Id") or DEFAULT_PROJECT_ID
         api_key = request.headers.get("X-API-Key") or "missing"
-        key = f"{api_key}:{user_id}:{project_id}"
+        identity = f"{api_key}:{user_id}:{project_id}".encode("utf-8")
+        key = hashlib.sha256(identity).hexdigest()
         now = time.monotonic()
         cutoff = now - 60
 
