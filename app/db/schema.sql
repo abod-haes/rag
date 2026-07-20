@@ -44,9 +44,19 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     content TEXT NOT NULL,
     page_number INT,
     chunk_index INT NOT NULL,
+    section_title TEXT,
+    content_type TEXT NOT NULL DEFAULT 'text',
     embedding vector(768),
+    search_vector TSVECTOR GENERATED ALWAYS AS (
+        to_tsvector('simple', COALESCE(content, ''))
+    ) STORED,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS section_title TEXT;
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS content_type TEXT NOT NULL DEFAULT 'text';
+ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS search_vector TSVECTOR
+GENERATED ALWAYS AS (to_tsvector('simple', COALESCE(content, ''))) STORED;
 
 CREATE INDEX IF NOT EXISTS idx_documents_project_user
 ON documents(project_id, user_id);
@@ -57,8 +67,14 @@ ON document_chunks(project_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_document
 ON document_chunks(document_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_document_index
+ON document_chunks(document_id, chunk_index);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw
 ON document_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_search_vector_gin
+ON document_chunks USING gin (search_vector);
 
 CREATE TABLE IF NOT EXISTS chat_usage (
     id UUID PRIMARY KEY,
