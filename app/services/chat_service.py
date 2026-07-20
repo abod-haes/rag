@@ -11,7 +11,7 @@ from app.services.usage_service import (
 )
 
 
-class GeminiChatService:
+class ChatService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.provider = self.settings.ai_provider.lower().strip()
@@ -58,12 +58,13 @@ class GeminiChatService:
         response = self.openai_client.responses.create(
             model=self.settings.openai_chat_model,
             input=prompt,
+            store=False,
         )
 
         text = getattr(response, "output_text", None)
         usage = extract_openai_usage(getattr(response, "usage", None))
         if not text:
-            return "لا يوجد جواب واضح في الملفات المرفوعة.", usage
+            return "تعذر توليد جواب واضح.", usage
 
         return text.strip(), usage
 
@@ -74,6 +75,7 @@ class GeminiChatService:
             model=self.settings.openai_chat_model,
             input=prompt,
             stream=True,
+            store=False,
         )
 
         try:
@@ -108,6 +110,10 @@ class GeminiChatService:
         text = getattr(response, "text", None)
         usage = extract_gemini_usage(getattr(response, "usage_metadata", None))
         if not text:
-            return "لا يوجد جواب واضح في الملفات المرفوعة.", usage
+            return "تعذر توليد جواب واضح.", usage
 
         return text.strip(), usage
+
+
+# Backward-compatible alias for existing imports.
+GeminiChatService = ChatService
