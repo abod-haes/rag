@@ -35,10 +35,26 @@ class Settings(BaseSettings):
     upload_dir: str = "/code/app/uploads"
     top_k: int = 5
     embedding_dim: int = 768
+
+    # Legacy character settings remain available for compatibility.
     max_chunk_chars: int = 7000
     chunk_overlap_chars: int = 500
+
+    # Preferred token-aware chunking settings.
+    max_chunk_tokens: int = 900
+    chunk_overlap_tokens: int = 120
     max_chunks_per_document: int = 0
     embedding_request_delay_seconds: float = 0.0
+
+    # Hybrid retrieval and local reranking.
+    retrieval_candidate_k: int = 20
+    min_relevance_score: float = 0.20
+    vector_weight: float = 0.60
+    lexical_weight: float = 0.25
+    exact_match_weight: float = 0.15
+    neighbor_window: int = 1
+    max_context_chunks: int = 12
+
     enable_ocr_fallback: bool = False
     max_ocr_pages: int = 10
     ocr_render_zoom: float = 2.0
