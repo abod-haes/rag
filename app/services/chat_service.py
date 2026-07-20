@@ -40,6 +40,42 @@ class ChatService:
 
         return self._generate_gemini(prompt)
 
+    def rewrite_follow_up(
+        self,
+        *,
+        question: str,
+        history: list[dict],
+    ) -> tuple[str, TokenUsage]:
+        if not history:
+            return question, TokenUsage()
+
+        history_text = "\n".join(
+            f"{item.get('role', 'user')}: {item.get('content', '')}"
+            for item in history
+        )
+        prompt = f"""
+Rewrite the latest user question as a complete standalone search query using the
+conversation history only to resolve references such as "it", "this rule", or
+"the previous example".
+
+Rules:
+- Preserve the language of the latest question.
+- Preserve mathematical symbols, numbers, document names, and constraints.
+- Do not answer the question.
+- Do not add facts that are not present in the history.
+- Return only the rewritten standalone question.
+
+CONVERSATION HISTORY:
+{history_text}
+
+LATEST QUESTION:
+{question}
+""".strip()
+
+        rewritten, usage = self.generate_answer_with_usage(prompt)
+        rewritten = rewritten.strip().strip('"')
+        return (rewritten or question), usage
+
     def stream_answer(self, prompt: str) -> Iterator[str]:
         self.last_usage = TokenUsage()
         if self.provider == "openai":
