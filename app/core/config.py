@@ -44,7 +44,12 @@ class Settings(BaseSettings):
     max_chunk_tokens: int = 900
     chunk_overlap_tokens: int = 120
     max_chunks_per_document: int = 0
+    embedding_batch_size: int = 32
     embedding_request_delay_seconds: float = 0.0
+
+    # Upload and duplicate protection.
+    max_upload_size_mb: int = 100
+    allow_duplicate_documents: bool = False
 
     # Hybrid retrieval and local reranking.
     retrieval_candidate_k: int = 20
