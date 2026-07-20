@@ -15,6 +15,12 @@ class EmbeddingResult:
     usage: TokenUsage
 
 
+@dataclass(frozen=True)
+class BatchEmbeddingResult:
+    values: list[list[float]]
+    usage: TokenUsage
+
+
 class EmbeddingService:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -39,6 +45,24 @@ class EmbeddingService:
     def embed_document_with_usage(self, text: str) -> EmbeddingResult:
         return self._embed(text=text, task_type="RETRIEVAL_DOCUMENT")
 
+    def embed_documents_batch_with_usage(self, texts: list[str]) -> BatchEmbeddingResult:
+        if not texts:
+            return BatchEmbeddingResult(values=[], usage=TokenUsage())
+
+        if self.provider == "openai":
+            return self._embed_openai_batch(texts)
+
+        values: list[list[float]] = []
+        usage = TokenUsage()
+        for text in texts:
+            result = self._embed_gemini(
+                text=text,
+                task_type="RETRIEVAL_DOCUMENT",
+            )
+            values.append(result.values)
+            usage = usage + result.usage
+        return BatchEmbeddingResult(values=values, usage=usage)
+
     def embed_query(self, text: str) -> list[float]:
         return self.embed_query_with_usage(text).values
 
@@ -52,17 +76,25 @@ class EmbeddingService:
         return self._embed_gemini(text=text, task_type=task_type)
 
     def _embed_openai(self, text: str) -> EmbeddingResult:
+        batch = self._embed_openai_batch([text])
+        return EmbeddingResult(values=batch.values[0], usage=batch.usage)
+
+    def _embed_openai_batch(self, texts: list[str]) -> BatchEmbeddingResult:
         assert self.openai_client is not None
 
         response = self.openai_client.embeddings.create(
             model=self.settings.openai_embedding_model,
-            input=text,
+            input=texts,
             dimensions=self.settings.embedding_dim,
             encoding_format="float",
         )
+        ordered = sorted(response.data, key=lambda item: item.index)
+        values = [self._normalize(item.embedding) for item in ordered]
+        if len(values) != len(texts):
+            raise RuntimeError("Embedding provider returned an unexpected batch size")
 
-        return EmbeddingResult(
-            values=self._normalize(response.data[0].embedding),
+        return BatchEmbeddingResult(
+            values=values,
             usage=extract_openai_usage(getattr(response, "usage", None)),
         )
 
