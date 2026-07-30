@@ -9,6 +9,35 @@ class ConversationNotFoundError(Exception):
 
 
 class ConversationService:
+    def create_conversation(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        title: str | None = None,
+    ) -> dict:
+        conversation_id = str(uuid.uuid4())
+        normalized_title = _build_title(title or "")
+        with get_connection() as (_, cursor):
+            cursor.execute(
+                """
+                INSERT INTO chat_conversations (
+                    id,
+                    user_id,
+                    project_id,
+                    title,
+                    active_document_ids
+                )
+                VALUES (%s, %s, %s, %s, '{}'::uuid[])
+                """,
+                (conversation_id, user_id, project_id, normalized_title),
+            )
+        return {
+            "id": conversation_id,
+            "title": normalized_title,
+            "activeDocumentIds": [],
+        }
+
     def ensure_conversation(
         self,
         *,
@@ -33,23 +62,12 @@ class ConversationService:
                 raise ConversationNotFoundError("Conversation not found")
             return row["id"]
 
-        new_id = str(uuid.uuid4())
-        title = _build_title(first_question)
-        with get_connection() as (_, cursor):
-            cursor.execute(
-                """
-                INSERT INTO chat_conversations (
-                    id,
-                    user_id,
-                    project_id,
-                    title,
-                    active_document_ids
-                )
-                VALUES (%s, %s, %s, %s, '{}'::uuid[])
-                """,
-                (new_id, user_id, project_id, title),
-            )
-        return new_id
+        created = self.create_conversation(
+            user_id=user_id,
+            project_id=project_id,
+            title=first_question,
+        )
+        return created["id"]
 
     def get_history(
         self,
@@ -214,6 +232,25 @@ class ConversationService:
             }
             for row in rows
         ]
+
+    def delete_conversation(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        project_id: str,
+    ) -> None:
+        normalized_id = _normalize_uuid(conversation_id)
+        with get_connection() as (_, cursor):
+            cursor.execute(
+                """
+                DELETE FROM chat_conversations
+                WHERE id = %s AND user_id = %s AND project_id = %s
+                """,
+                (normalized_id, user_id, project_id),
+            )
+            if cursor.rowcount == 0:
+                raise ConversationNotFoundError("Conversation not found")
 
 
 def _normalize_uuid(value: str) -> str:
