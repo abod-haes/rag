@@ -114,9 +114,13 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
     user_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
     title TEXT,
+    active_document_ids UUID[] NOT NULL DEFAULT '{}'::uuid[],
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE chat_conversations
+ADD COLUMN IF NOT EXISTS active_document_ids UUID[] NOT NULL DEFAULT '{}'::uuid[];
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id UUID PRIMARY KEY,
