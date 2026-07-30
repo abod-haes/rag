@@ -7,6 +7,9 @@ Independent Python FastAPI service for PDF-based Retrieval-Augmented Generation.
 - Extracts selectable Arabic and English text from PDF files
 - Uses token-aware, paragraph-aware chunking
 - Generates batched embeddings and stores them in PostgreSQL with pgvector
+- Automatically selects the relevant document from the user question
+- Asks for the subject when the document cannot be determined confidently
+- Keeps the selected subject/documents active during follow-up conversation messages
 - Combines vector similarity, PostgreSQL lexical search, and exact token overlap
 - Locally reranks results and includes neighboring chunks when useful
 - Answers directly from the document when supported
@@ -59,7 +62,7 @@ The .NET backend can isolate data by also sending:
 
 ```http
 X-User-Id: application-user-id
-X-Project-Id: application-project-id
+X-Project-Id: course-or-tenant-id
 ```
 
 When these headers are omitted, the service uses `default-user` and
@@ -92,37 +95,114 @@ identical files.
 Embedding requests are grouped using `EMBEDDING_BATCH_SIZE`. Failed or ready
 documents can be rebuilt through the retry endpoint.
 
-## Chat endpoints
+## Chat and conversation endpoints
 
 ```http
+POST /api/chat/conversations
+GET /api/chat/conversations
+GET /api/chat/conversations/{conversationId}/messages
+DELETE /api/chat/conversations/{conversationId}
 POST /api/chat/ask
 POST /api/chat/stream
 GET /api/chat/usage?limit=50
-GET /api/chat/conversations
-GET /api/chat/conversations/{conversationId}/messages
 ```
 
-First question:
+The recommended backend flow is:
+
+1. Call `POST /api/chat/conversations` when the application creates a new chat.
+2. Store the returned RAG conversation `id` in the .NET conversation record.
+3. Send it as `conversationId` with every question.
+4. Do not send `documentIds` during normal chat; the RAG service routes the question automatically.
+5. Keep the same `conversationId` when replying to a clarification question.
+
+Create a conversation:
 
 ```json
 {
-  "question": "اشرحلي محتوى الملف باختصار",
-  "documentIds": ["optional-document-id"]
+  "title": "اختياري"
 }
 ```
 
-The response includes a generated `conversationId`. Send it with a follow-up:
+Ask without choosing a document:
 
 ```json
 {
-  "question": "طيب ليش استخدمنا هالقانون؟",
-  "conversationId": "conversation-id-from-the-first-response",
-  "documentIds": ["optional-document-id"]
+  "question": "اشرحلي درس المتتاليات",
+  "conversationId": "conversation-id"
 }
 ```
 
-The service rewrites follow-up questions into standalone retrieval queries while
-preserving the original question for the final answer.
+`documentIds` remains optional for admin tools, tests, or a UI opened inside one
+specific book:
+
+```json
+{
+  "question": "اشرح هذه الصفحة",
+  "conversationId": "conversation-id",
+  "documentIds": ["forced-document-id"]
+}
+```
+
+## Automatic document routing
+
+The service first rewrites follow-up messages into a standalone search query.
+It then scores documents using:
+
+- semantic similarity from document chunks
+- full-text lexical matches
+- file/display-name matches
+- recognized subject names
+- the active documents from the current conversation
+
+When one document or one subject is clear, the response includes:
+
+```json
+{
+  "conversationId": "...",
+  "needsClarification": false,
+  "routingStatus": "selected",
+  "selectedDocuments": [
+    {
+      "documentId": "...",
+      "name": "دليل المعلم رياضيات صف 12",
+      "subject": "الرياضيات",
+      "score": 0.91,
+      "selectionReason": "automatic"
+    }
+  ],
+  "answer": "...",
+  "sources": []
+}
+```
+
+When the question is too vague, such as `اشرحلي الدرس الأول`, the API does not
+generate a guessed answer. It returns:
+
+```json
+{
+  "conversationId": "...",
+  "needsClarification": true,
+  "routingStatus": "clarification",
+  "clarificationQuestion": "شو المادة يلي بدك تسأل عنها؟",
+  "candidateSubjects": ["الرياضيات", "الفيزياء", "أمن المعلومات"],
+  "candidateDocuments": [],
+  "answer": "شو المادة يلي بدك تسأل عنها؟",
+  "sources": []
+}
+```
+
+Send the user's reply with the same conversation ID:
+
+```json
+{
+  "question": "رياضيات",
+  "conversationId": "same-conversation-id"
+}
+```
+
+The service combines this reply with the unresolved earlier question, chooses the
+math document, and stores those documents as active for later messages such as
+`طيب حل السؤال الخامس`.
 
 The answer process is automatic; there is no strict/tutor mode switch:
 
@@ -134,13 +214,25 @@ The answer process is automatic; there is no strict/tutor mode switch:
 The non-streaming response returns only sources referenced in the answer as
 `[S1]`, `[S2]`, and so on. It also returns `retrievedSourceCount` for debugging.
 
-Streaming events are emitted in this order:
+Streaming normally emits:
 
 ```txt
 started
 resolved_question
+routing
 sources
 delta ...
+usage
+done
+```
+
+When a subject clarification is required, it emits:
+
+```txt
+started
+resolved_question
+clarification
+delta
 usage
 done
 ```
@@ -148,11 +240,15 @@ done
 The initial `sources` event contains retrieval candidates. The final `done`
 event contains only the sources actually cited by the completed answer.
 
-## Retrieval configuration
-
-Useful environment variables:
+## Routing and retrieval configuration
 
 ```env
+DOCUMENT_ROUTING_CANDIDATE_CHUNKS=80
+DOCUMENT_ROUTING_MIN_SCORE=0.28
+DOCUMENT_ROUTING_AMBIGUITY_MARGIN=0.08
+DOCUMENT_ROUTING_MAX_DOCUMENTS=3
+DOCUMENT_ROUTING_ACTIVE_BOOST=0.12
+
 TOP_K=5
 RETRIEVAL_CANDIDATE_K=20
 MIN_RELEVANCE_SCORE=0.20
@@ -172,6 +268,19 @@ CHUNK_OVERLAP_TOKENS=120
 
 Existing indexed documents keep their old chunks until they are retried or
 uploaded again.
+
+## .NET integration
+
+A complete .NET HttpClient and DTO example is available in:
+
+```txt
+docs/dotnet-conversations.md
+```
+
+Use the .NET database as the application source of truth for users,
+conversations, permissions, and UI messages. Store the RAG `conversationId`
+beside the application conversation ID. The RAG database keeps its own message
+copy only for retrieval and follow-up context.
 
 ## Usage, observability, and limits
 
