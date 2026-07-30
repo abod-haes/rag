@@ -23,3 +23,13 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m compileall -q app
       - run: python -c "from app.main import app; assert app.title"
+      - name: Check routing helpers
+        run: |
+          python - <<'PY'
+          from app.services.document_routing_service import infer_subject, _is_underspecified
+
+          assert infer_subject("دليل المعلم رياضيات صف 12") == "الرياضيات"
+          assert infer_subject("أمن المعلومات والتشفير") == "أمن المعلومات"
+          assert _is_underspecified("اشرحلي الدرس الأول") is True
+          assert _is_underspecified("اشرحلي المتتاليات") is False
+          PY
