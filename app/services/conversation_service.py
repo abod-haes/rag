@@ -38,8 +38,14 @@ class ConversationService:
         with get_connection() as (_, cursor):
             cursor.execute(
                 """
-                INSERT INTO chat_conversations (id, user_id, project_id, title)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO chat_conversations (
+                    id,
+                    user_id,
+                    project_id,
+                    title,
+                    active_document_ids
+                )
+                VALUES (%s, %s, %s, %s, '{}'::uuid[])
                 """,
                 (new_id, user_id, project_id, title),
             )
@@ -84,6 +90,56 @@ class ConversationService:
             }
             for row in rows
         ]
+
+    def get_active_document_ids(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        project_id: str,
+    ) -> list[str]:
+        normalized_id = _normalize_uuid(conversation_id)
+        with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
+            cursor.execute(
+                """
+                SELECT active_document_ids
+                FROM chat_conversations
+                WHERE id = %s AND user_id = %s AND project_id = %s
+                """,
+                (normalized_id, user_id, project_id),
+            )
+            row = cursor.fetchone()
+        if not row:
+            raise ConversationNotFoundError("Conversation not found")
+        return [str(value) for value in (row["active_document_ids"] or [])]
+
+    def set_active_document_ids(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        project_id: str,
+        document_ids: list[str],
+    ) -> None:
+        normalized_id = _normalize_uuid(conversation_id)
+        normalized_document_ids = [_normalize_document_uuid(value) for value in document_ids]
+        with get_connection() as (_, cursor):
+            cursor.execute(
+                """
+                UPDATE chat_conversations
+                SET active_document_ids = %s::uuid[],
+                    updated_at = NOW()
+                WHERE id = %s AND user_id = %s AND project_id = %s
+                """,
+                (
+                    normalized_document_ids,
+                    normalized_id,
+                    user_id,
+                    project_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise ConversationNotFoundError("Conversation not found")
 
     def add_message(
         self,
@@ -131,7 +187,12 @@ class ConversationService:
         with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
             cursor.execute(
                 """
-                SELECT id::text, title, created_at, updated_at
+                SELECT
+                    id::text,
+                    title,
+                    active_document_ids,
+                    created_at,
+                    updated_at
                 FROM chat_conversations
                 WHERE user_id = %s AND project_id = %s
                 ORDER BY updated_at DESC
@@ -145,6 +206,9 @@ class ConversationService:
             {
                 "id": row["id"],
                 "title": row["title"],
+                "activeDocumentIds": [
+                    str(value) for value in (row["active_document_ids"] or [])
+                ],
                 "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
                 "updatedAt": row["updated_at"].isoformat() if row["updated_at"] else None,
             }
@@ -157,6 +221,13 @@ def _normalize_uuid(value: str) -> str:
         return str(uuid.UUID(str(value).strip()))
     except (ValueError, AttributeError, TypeError) as exc:
         raise ConversationNotFoundError("Invalid conversationId") from exc
+
+
+def _normalize_document_uuid(value: str) -> str:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ValueError("Invalid documentId") from exc
 
 
 def _build_title(question: str) -> str:
