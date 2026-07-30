@@ -54,21 +54,28 @@ class ChatService:
             for item in history
         )
         prompt = f"""
-Rewrite the latest user question as a complete standalone search query using the
-conversation history only to resolve references such as "it", "this rule", or
-"the previous example".
+Rewrite the latest user message as one complete standalone search query.
+Use the conversation history only to resolve references and missing context.
+
+Important clarification behavior:
+- If the assistant previously asked which subject, course, document, lesson, or
+  book the user means, and the latest message supplies only that missing detail,
+  combine it with the user's unresolved earlier question.
+- Example: user asks "اشرحلي الدرس الأول", assistant asks "شو المادة؟", and the
+  user replies "رياضيات". Return a standalone query equivalent to
+  "اشرح الدرس الأول في مادة الرياضيات".
 
 Rules:
-- Preserve the language of the latest question.
+- Preserve the language of the latest user message and the original request.
 - Preserve mathematical symbols, numbers, document names, and constraints.
 - Do not answer the question.
 - Do not add facts that are not present in the history.
-- Return only the rewritten standalone question.
+- Return only the rewritten standalone query.
 
 CONVERSATION HISTORY:
 {history_text}
 
-LATEST QUESTION:
+LATEST USER MESSAGE:
 {question}
 """.strip()
 
