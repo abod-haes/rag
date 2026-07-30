@@ -1,6 +1,7 @@
 import re
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.core.config import get_settings
 from app.db.database import dict_cursor, get_connection
@@ -11,21 +12,90 @@ TERM_RE = re.compile(r"[\w\u0600-\u06ff]+", re.UNICODE)
 ARABIC_RE = re.compile(r"[\u0600-\u06ff]")
 
 STOP_WORDS = {
-    "من", "في", "على", "إلى", "الى", "عن", "ما", "ماذا", "هل", "هو", "هي",
-    "هذا", "هذه", "ذلك", "اشرح", "اشرحلي", "وضح", "وضّح", "اعطيني", "عطيني",
-    "the", "a", "an", "of", "in", "on", "to", "is", "are", "what", "how",
-    "explain", "give", "me",
+    "من",
+    "في",
+    "على",
+    "إلى",
+    "الى",
+    "عن",
+    "ما",
+    "ماذا",
+    "هل",
+    "هو",
+    "هي",
+    "هذا",
+    "هذه",
+    "ذلك",
+    "اشرح",
+    "اشرحلي",
+    "وضح",
+    "وضّح",
+    "اعطيني",
+    "عطيني",
+    "the",
+    "a",
+    "an",
+    "of",
+    "in",
+    "on",
+    "to",
+    "is",
+    "are",
+    "what",
+    "how",
+    "explain",
+    "give",
+    "me",
 }
 
 GENERIC_TERMS = {
-    "درس", "الدرس", "كتاب", "الكتاب", "ملف", "الملف", "مادة", "المادة",
-    "سؤال", "السؤال", "تمرين", "التمرين", "مثال", "المثال", "حل", "شرح",
-    "اول", "أول", "الاول", "الأول", "تاني", "ثاني", "الثاني", "التالي",
-    "lesson", "book", "file", "subject", "question", "exercise", "example",
+    "درس",
+    "الدرس",
+    "كتاب",
+    "الكتاب",
+    "ملف",
+    "الملف",
+    "مادة",
+    "المادة",
+    "سؤال",
+    "السؤال",
+    "تمرين",
+    "التمرين",
+    "مثال",
+    "المثال",
+    "حل",
+    "شرح",
+    "اول",
+    "أول",
+    "الاول",
+    "الأول",
+    "تاني",
+    "ثاني",
+    "الثاني",
+    "التالي",
+    "lesson",
+    "book",
+    "file",
+    "subject",
+    "question",
+    "exercise",
+    "example",
 }
 
 SUBJECT_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("الرياضيات", ("رياضيات", "جبر", "هندسة", "تفاضل", "تكامل", "متتاليات", "احتمالات", "مثلثات")),
+    (
+        "الرياضيات",
+        (
+            "رياضيات",
+            "جبر",
+            "هندسة",
+            "تفاضل",
+            "تكامل",
+            "متتاليات",
+            "احتمالات",
+            "مثلثات",
+        ),
+    ),
     ("الفيزياء", ("فيزياء", "ميكانيك", "كهرباء", "مغناطيس", "حركة", "طاقة")),
     ("الكيمياء", ("كيمياء", "عضوية", "تفاعلات", "ذرة", "جزيئات")),
     ("الأحياء", ("أحياء", "احياء", "بيولوجيا", "وراثة", "خلية", "مجهرية")),
@@ -53,6 +123,8 @@ class DocumentRoutingResult:
     status: str
     selected_documents: list[dict]
     candidates: list[dict]
+    # Kept with the old API name for compatibility. In clarification responses
+    # this now contains every available document name, not inferred subjects.
     candidate_subjects: list[str]
     clarification_question: str | None = None
 
@@ -75,65 +147,56 @@ class DocumentRoutingService:
         explicit_document_ids: list[str] | None = None,
         active_document_ids: list[str] | None = None,
     ) -> DocumentRoutingResult:
-        documents = self._list_ready_documents(user_id=user_id, project_id=project_id)
+        documents = self._list_ready_documents(
+            user_id=user_id,
+            project_id=project_id,
+        )
 
         if explicit_document_ids:
             selected = self._select_explicit_documents(
                 documents=documents,
                 document_ids=explicit_document_ids,
             )
-            return DocumentRoutingResult(
-                status="selected",
-                selected_documents=[_public_document(item, score=1.0, reason="explicit") for item in selected],
-                candidates=[],
-                candidate_subjects=_unique_subjects(selected),
-            )
+            return self._selected_result(selected, reason="explicit")
 
         if not documents:
-            question = _clarification_question([], query_text, no_documents=True)
             return DocumentRoutingResult(
                 status="clarification",
                 selected_documents=[],
                 candidates=[],
                 candidate_subjects=[],
-                clarification_question=question,
+                clarification_question=_clarification_question(
+                    query_text=query_text,
+                    no_documents=True,
+                ),
             )
+
+        # A user may answer a clarification by typing the displayed file name.
+        # Prefer that explicit textual choice before semantic routing.
+        name_selected = _select_by_document_name(documents, query_text)
+        if name_selected:
+            return self._selected_result(name_selected, reason="name_match")
 
         active_ids = {str(value) for value in (active_document_ids or [])}
         active_documents = [item for item in documents if item["id"] in active_ids]
         query_subject = infer_subject(query_text)
 
         if active_documents and _is_underspecified(query_text):
-            return DocumentRoutingResult(
-                status="selected",
-                selected_documents=[
-                    _public_document(item, score=1.0, reason="conversation")
-                    for item in active_documents[: self.settings.document_routing_max_documents]
-                ],
-                candidates=[],
-                candidate_subjects=_unique_subjects(active_documents),
+            return self._selected_result(
+                active_documents[: self.settings.document_routing_max_documents],
+                reason="conversation",
             )
 
         if len(documents) == 1:
-            return DocumentRoutingResult(
-                status="selected",
-                selected_documents=[_public_document(documents[0], score=1.0, reason="only_document")],
-                candidates=[],
-                candidate_subjects=_unique_subjects(documents),
-            )
+            return self._selected_result(documents, reason="only_document")
 
         if _is_underspecified(query_text) and not query_subject:
-            candidates = [_public_document(item, score=0.0, reason="candidate") for item in documents[:5]]
-            subjects = _unique_subjects(documents)
-            return DocumentRoutingResult(
-                status="clarification",
-                selected_documents=[],
-                candidates=candidates,
-                candidate_subjects=subjects,
-                clarification_question=_clarification_question(subjects, query_text),
+            return self._clarification_result(
+                documents=documents,
+                query_text=query_text,
             )
 
-        candidates = self._score_documents(
+        ranked = self._score_documents(
             documents=documents,
             query_embedding=query_embedding,
             query_text=query_text,
@@ -143,35 +206,82 @@ class DocumentRoutingService:
             query_subject=query_subject,
         )
 
-        selected = self._choose_documents(candidates, query_subject=query_subject)
+        selected = self._choose_documents(ranked, query_subject=query_subject)
         if selected:
+            public_ranked = [
+                _public_document(
+                    item,
+                    score=float(item.get("score") or 0.0),
+                    reason="candidate",
+                )
+                for item in ranked
+            ]
             return DocumentRoutingResult(
                 status="selected",
                 selected_documents=[
-                    _public_document(item, score=item["score"], reason="automatic")
+                    _public_document(
+                        item,
+                        score=float(item.get("score") or 0.0),
+                        reason="automatic",
+                    )
                     for item in selected
                 ],
-                candidates=[
-                    _public_document(item, score=item["score"], reason="candidate")
-                    for item in candidates[:5]
-                ],
-                candidate_subjects=_unique_subjects(candidates),
+                candidates=public_ranked,
+                candidate_subjects=_document_names(documents),
             )
 
-        public_candidates = [
-            _public_document(item, score=item["score"], reason="candidate")
-            for item in candidates[:5]
+        return self._clarification_result(
+            documents=ranked or documents,
+            query_text=query_text,
+        )
+
+    def _selected_result(self, documents: list[dict], *, reason: str) -> DocumentRoutingResult:
+        return DocumentRoutingResult(
+            status="selected",
+            selected_documents=[
+                _public_document(
+                    item,
+                    score=float(item.get("score") or 1.0),
+                    reason=reason,
+                )
+                for item in documents
+            ],
+            candidates=[],
+            candidate_subjects=_document_names(documents),
+        )
+
+    def _clarification_result(
+        self,
+        *,
+        documents: list[dict],
+        query_text: str,
+    ) -> DocumentRoutingResult:
+        public_documents = [
+            _public_document(
+                item,
+                score=float(item.get("score") or 0.0),
+                reason="candidate",
+            )
+            for item in documents
         ]
-        subjects = _unique_subjects(candidates or documents)
+        names = _document_names(documents)
         return DocumentRoutingResult(
             status="clarification",
             selected_documents=[],
-            candidates=public_candidates,
-            candidate_subjects=subjects,
-            clarification_question=_clarification_question(subjects, query_text),
+            candidates=public_documents,
+            candidate_subjects=names,
+            clarification_question=_clarification_question(
+                query_text=query_text,
+                document_names=names,
+            ),
         )
 
-    def _list_ready_documents(self, *, user_id: str, project_id: str) -> list[dict]:
+    def _list_ready_documents(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+    ) -> list[dict]:
         with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
             cursor.execute(
                 """
@@ -228,7 +338,9 @@ class DocumentRoutingService:
         document_map = {item["id"]: item for item in documents}
         missing = [value for value in normalized_ids if value not in document_map]
         if missing:
-            raise DocumentRoutingError("One or more documents were not found or are not ready")
+            raise DocumentRoutingError(
+                "One or more documents were not found or are not ready"
+            )
         return [document_map[value] for value in normalized_ids]
 
     def _score_documents(
@@ -269,7 +381,11 @@ class DocumentRoutingService:
                 query_terms,
                 f"{item.get('name', '')} {item.get('file_name', '')}",
             )
-            subject_score = 1.0 if query_subject and item["subject"] == query_subject else 0.0
+            subject_score = (
+                1.0
+                if query_subject and item["subject"] == query_subject
+                else 0.0
+            )
             active_bonus = (
                 self.settings.document_routing_active_boost
                 if item["id"] in active_ids
@@ -374,6 +490,7 @@ class DocumentRoutingService:
                 (lexical_query, user_id, project_id),
             )
             rows = cursor.fetchall()
+
         return {
             row["document_id"]: float(row["lexical_score"] or 0.0)
             for row in rows
@@ -404,7 +521,8 @@ class DocumentRoutingService:
             item
             for item in candidates
             if item["subject"] == top["subject"]
-            and item["score"] >= top["score"] - self.settings.document_routing_ambiguity_margin
+            and item["score"]
+            >= top["score"] - self.settings.document_routing_ambiguity_margin
         ]
         if (
             top["subject"] != "غير محددة"
@@ -423,6 +541,71 @@ def infer_subject(text: str) -> str | None:
     return None
 
 
+def _select_by_document_name(
+    documents: list[dict],
+    query_text: str,
+) -> list[dict]:
+    query = _normalize_match_text(query_text)
+    if not query:
+        return []
+
+    matches: list[tuple[float, dict]] = []
+    query_terms = _extract_terms(query_text)
+
+    for document in documents:
+        aliases = _document_aliases(document)
+        best_score = 0.0
+        for alias in aliases:
+            normalized_alias = _normalize_match_text(alias)
+            if not normalized_alias:
+                continue
+
+            if query == normalized_alias:
+                best_score = max(best_score, 1.0)
+                continue
+
+            if len(normalized_alias) >= 6 and normalized_alias in query:
+                best_score = max(best_score, 0.95)
+                continue
+
+            alias_terms = _extract_terms(alias)
+            if alias_terms:
+                overlap = len(query_terms & alias_terms) / len(alias_terms)
+                best_score = max(best_score, overlap)
+
+        if best_score > 0:
+            matches.append((best_score, document))
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    if not matches:
+        return []
+
+    top_score, top_document = matches[0]
+    second_score = matches[1][0] if len(matches) > 1 else 0.0
+    if top_score >= 0.90 and top_score - second_score >= 0.10:
+        return [top_document]
+    if top_score == 1.0 and second_score < 1.0:
+        return [top_document]
+    return []
+
+
+def _document_aliases(document: dict) -> list[str]:
+    values = [
+        str(document.get("name") or ""),
+        str(document.get("file_name") or ""),
+    ]
+    file_name = str(document.get("file_name") or "")
+    if file_name:
+        values.append(Path(file_name).stem)
+    return list(dict.fromkeys(value for value in values if value.strip()))
+
+
+def _normalize_match_text(text: str) -> str:
+    normalized = " ".join((text or "").casefold().split())
+    normalized = normalized.removesuffix(".pdf")
+    return normalized.strip()
+
+
 def _extract_terms(text: str) -> set[str]:
     terms = {
         term.casefold()
@@ -434,7 +617,8 @@ def _extract_terms(text: str) -> set[str]:
 
 def _is_underspecified(text: str) -> bool:
     terms = _extract_terms(text)
-    meaningful = {term for term in terms if term not in {item.casefold() for item in GENERIC_TERMS}}
+    generic = {item.casefold() for item in GENERIC_TERMS}
+    meaningful = {term for term in terms if term not in generic}
     return len(meaningful) == 0
 
 
@@ -445,13 +629,13 @@ def _overlap_score(query_terms: set[str], text: str) -> float:
     return len(query_terms & document_terms) / len(query_terms)
 
 
-def _unique_subjects(documents: list[dict]) -> list[str]:
-    subjects: list[str] = []
+def _document_names(documents: list[dict]) -> list[str]:
+    names: list[str] = []
     for item in documents:
-        subject = item.get("subject")
-        if subject and subject != "غير محددة" and subject not in subjects:
-            subjects.append(subject)
-    return subjects[:8]
+        name = str(item.get("name") or item.get("file_name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def _public_document(document: dict, *, score: float, reason: str) -> dict:
@@ -466,21 +650,17 @@ def _public_document(document: dict, *, score: float, reason: str) -> dict:
 
 
 def _clarification_question(
-    subjects: list[str],
-    query_text: str,
     *,
+    query_text: str,
+    document_names: list[str] | None = None,
     no_documents: bool = False,
 ) -> str:
     is_arabic = bool(ARABIC_RE.search(query_text or ""))
     if is_arabic:
         if no_documents:
-            return "شو المادة أو الدرس يلي بدك تسأل عنه؟ ما في ملفات جاهزة مفهرسة حاليًا."
-        if subjects:
-            return f"شو المادة يلي بدك تسأل عنها؟ المواد المتوفرة: {('، '.join(subjects))}."
-        return "شو المادة أو اسم الكتاب يلي بدك تسأل عنه؟"
+            return "ما في ملفات جاهزة مفهرسة حاليًا. ارفع ملف أولًا وبعدين اسألني."
+        return "أي ملف بدك تسأل منو؟ اختار اسم ملف من القائمة."
 
     if no_documents:
-        return "Which subject or lesson are you asking about? There are no indexed documents ready yet."
-    if subjects:
-        return f"Which subject are you asking about? Available subjects: {', '.join(subjects)}."
-    return "Which subject or document are you asking about?"
+        return "There are no indexed documents ready yet. Upload a document first."
+    return "Which document do you want to use? Choose a file name from the list."
