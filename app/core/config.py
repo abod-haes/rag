@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     embedding_request_delay_seconds: float = 0.0
     max_upload_size_mb: int = 100
     allow_duplicate_documents: bool = False
+
     retrieval_candidate_k: int = 20
     min_relevance_score: float = 0.20
     vector_weight: float = 0.60
@@ -51,8 +52,16 @@ class Settings(BaseSettings):
     exact_match_weight: float = 0.15
     neighbor_window: int = 1
     max_context_chunks: int = 12
+
+    document_routing_candidate_chunks: int = 80
+    document_routing_min_score: float = 0.28
+    document_routing_ambiguity_margin: float = 0.08
+    document_routing_max_documents: int = 3
+    document_routing_active_boost: float = 0.12
+
     conversation_history_messages: int = 6
     rate_limit_requests_per_minute: int = 120
+
     enable_ocr_fallback: bool = False
     max_ocr_pages: int = 10
     ocr_render_zoom: float = 2.0
