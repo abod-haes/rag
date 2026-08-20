@@ -59,6 +59,11 @@ jobs:
               if getattr(route, "path", None) == "/api/chat/stream"
               and "POST" in (getattr(route, "methods", set()) or set())
           ]
-          assert len(ask_routes) == 1
-          assert len(stream_routes) == 1
+          route_debug = [
+              (getattr(route, "path", None), sorted(getattr(route, "methods", set()) or set()), getattr(route, "name", None))
+              for route in app.routes
+              if str(getattr(route, "path", "")).startswith("/api/chat")
+          ]
+          assert len(ask_routes) == 1, f"ask route count={len(ask_routes)} routes={route_debug}"
+          assert len(stream_routes) == 1, f"stream route count={len(stream_routes)} routes={route_debug}"
           PY
