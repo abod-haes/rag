@@ -33,3 +33,33 @@ jobs:
           assert _is_underspecified("اشرحلي الدرس الأول") is True
           assert _is_underspecified("اشرحلي المتتاليات") is False
           PY
+      - name: Check hybrid chat routing
+        run: |
+          python - <<'PY'
+          from app.api.chat_v5 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
+          from app.main import app
+
+          assert app.title
+          assert _fallback_intent("مرحبا", []) == GENERAL_CHAT
+          assert _fallback_intent("اشرح قانون نيوتن الثاني", []) == CURRICULUM
+          assert _fallback_intent("حل 2+2", []) == CURRICULUM
+
+          fallback = _curriculum_fallback("اشرحلي الفيزياء")
+          assert "مفهرسة" not in fallback
+          assert "RAG" not in fallback
+
+          ask_routes = [
+              route
+              for route in router.routes
+              if getattr(route, "path", None) == "/api/chat/ask"
+              and "POST" in (getattr(route, "methods", set()) or set())
+          ]
+          stream_routes = [
+              route
+              for route in router.routes
+              if getattr(route, "path", None) == "/api/chat/stream"
+              and "POST" in (getattr(route, "methods", set()) or set())
+          ]
+          assert len(ask_routes) == 1
+          assert len(stream_routes) == 1
+          PY
