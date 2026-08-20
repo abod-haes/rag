@@ -36,9 +36,10 @@ jobs:
       - name: Check hybrid chat routing
         run: |
           python - <<'PY'
-          from app.api.chat_v5 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent
+          from app.api.chat_v5 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
           from app.main import app
 
+          assert app.title
           assert _fallback_intent("مرحبا", []) == GENERAL_CHAT
           assert _fallback_intent("اشرح قانون نيوتن الثاني", []) == CURRICULUM
           assert _fallback_intent("حل 2+2", []) == CURRICULUM
@@ -49,20 +50,16 @@ jobs:
 
           ask_routes = [
               route
-              for route in app.routes
+              for route in router.routes
               if getattr(route, "path", None) == "/api/chat/ask"
               and "POST" in (getattr(route, "methods", set()) or set())
           ]
           stream_routes = [
               route
-              for route in app.routes
+              for route in router.routes
               if getattr(route, "path", None) == "/api/chat/stream"
               and "POST" in (getattr(route, "methods", set()) or set())
           ]
-          route_debug = [
-              (getattr(route, "path", None), sorted(getattr(route, "methods", set()) or set()), getattr(route, "name", None))
-              for route in app.routes
-          ]
-          assert len(ask_routes) == 1, f"ask route count={len(ask_routes)} routes={route_debug}"
-          assert len(stream_routes) == 1, f"stream route count={len(stream_routes)} routes={route_debug}"
+          assert len(ask_routes) == 1
+          assert len(stream_routes) == 1
           PY
