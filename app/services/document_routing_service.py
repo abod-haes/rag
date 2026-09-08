@@ -147,17 +147,22 @@ class DocumentRoutingService:
         explicit_document_ids: list[str] | None = None,
         active_document_ids: list[str] | None = None,
     ) -> DocumentRoutingResult:
+        # Explicit document IDs come from the trusted Quizy backend after it has
+        # resolved the student's curriculum. Curriculum files are uploaded by
+        # admins, so their RAG user_id differs from the student's conversation
+        # user_id. Keep the project as the tenant boundary while allowing those
+        # explicitly selected ready documents to be used by the student.
+        if explicit_document_ids:
+            selected = self._select_explicit_documents(
+                project_id=project_id,
+                document_ids=explicit_document_ids,
+            )
+            return self._selected_result(selected, reason="explicit")
+
         documents = self._list_ready_documents(
             user_id=user_id,
             project_id=project_id,
         )
-
-        if explicit_document_ids:
-            selected = self._select_explicit_documents(
-                documents=documents,
-                document_ids=explicit_document_ids,
-            )
-            return self._selected_result(selected, reason="explicit")
 
         if not documents:
             return DocumentRoutingResult(
@@ -307,6 +312,58 @@ class DocumentRoutingService:
             )
             rows = list(cursor.fetchall())
 
+        return self._hydrate_documents(rows)
+
+    def _select_explicit_documents(
+        self,
+        *,
+        project_id: str,
+        document_ids: list[str],
+    ) -> list[dict]:
+        normalized_ids: list[str] = []
+        for value in document_ids:
+            try:
+                normalized = str(uuid.UUID(str(value).strip()))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise DocumentRoutingError("Invalid documentId") from exc
+            if normalized not in normalized_ids:
+                normalized_ids.append(normalized)
+
+        with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
+            cursor.execute(
+                """
+                SELECT
+                    d.id::text,
+                    COALESCE(NULLIF(BTRIM(d.name), ''), d.file_name) AS name,
+                    d.file_name,
+                    sample.content AS sample_content
+                FROM documents d
+                LEFT JOIN LATERAL (
+                    SELECT dc.content
+                    FROM document_chunks dc
+                    WHERE dc.document_id = d.id
+                    ORDER BY dc.chunk_index
+                    LIMIT 1
+                ) sample ON TRUE
+                WHERE d.project_id = %s
+                  AND d.id = ANY(%s::uuid[])
+                  AND d.status = 'ready'
+                """,
+                (project_id, normalized_ids),
+            )
+            rows = list(cursor.fetchall())
+
+        document_map = {
+            item["id"]: item for item in self._hydrate_documents(rows)
+        }
+        missing = [value for value in normalized_ids if value not in document_map]
+        if missing:
+            raise DocumentRoutingError(
+                "One or more documents were not found or are not ready"
+            )
+        return [document_map[value] for value in normalized_ids]
+
+    def _hydrate_documents(self, rows: list[dict]) -> list[dict]:
         documents: list[dict] = []
         for row in rows:
             item = dict(row)
@@ -321,27 +378,6 @@ class DocumentRoutingService:
             ) or "غير محددة"
             documents.append(item)
         return documents
-
-    def _select_explicit_documents(
-        self,
-        *,
-        documents: list[dict],
-        document_ids: list[str],
-    ) -> list[dict]:
-        normalized_ids: list[str] = []
-        for value in document_ids:
-            try:
-                normalized_ids.append(str(uuid.UUID(str(value).strip())))
-            except (ValueError, TypeError, AttributeError) as exc:
-                raise DocumentRoutingError("Invalid documentId") from exc
-
-        document_map = {item["id"]: item for item in documents}
-        missing = [value for value in normalized_ids if value not in document_map]
-        if missing:
-            raise DocumentRoutingError(
-                "One or more documents were not found or are not ready"
-            )
-        return [document_map[value] for value in normalized_ids]
 
     def _score_documents(
         self,
