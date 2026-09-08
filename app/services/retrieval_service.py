@@ -84,7 +84,6 @@ class RetrievalService:
         return self._expand_neighbors(
             core_results=core_results,
             query_vector=query_vector,
-            user_id=user_id,
             project_id=project_id,
         )
 
@@ -97,12 +96,16 @@ class RetrievalService:
         document_ids: list[str] | None,
         limit: int,
     ) -> list[dict]:
-        document_filter = ""
-        params: list = [query_vector, user_id, project_id]
         if document_ids:
-            document_filter = "AND dc.document_id = ANY(%s::uuid[])"
-            params.append(document_ids)
-        params.extend([query_vector, limit])
+            # Explicit document IDs were already authorized by the trusted API
+            # request and project-scoped by DocumentRoutingService. Do not bind
+            # them to the conversation user's RAG owner id, because Quizy
+            # curriculum PDFs are uploaded under an admin owner id.
+            scope_filter = "dc.project_id = %s AND dc.document_id = ANY(%s::uuid[])"
+            params: list = [query_vector, project_id, document_ids, query_vector, limit]
+        else:
+            scope_filter = "dc.user_id = %s AND dc.project_id = %s"
+            params = [query_vector, user_id, project_id, query_vector, limit]
 
         sql = f"""
             SELECT
@@ -117,10 +120,8 @@ class RetrievalService:
                 (dc.embedding <=> %s::vector) AS distance
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
-            WHERE dc.user_id = %s
-              AND dc.project_id = %s
+            WHERE {scope_filter}
               AND d.status = 'ready'
-              {document_filter}
             ORDER BY dc.embedding <=> %s::vector
             LIMIT %s;
         """
@@ -144,12 +145,12 @@ class RetrievalService:
             return []
 
         lexical_query = " | ".join(sorted(terms))
-        document_filter = ""
-        params: list = [lexical_query, query_vector, user_id, project_id]
         if document_ids:
-            document_filter = "AND dc.document_id = ANY(%s::uuid[])"
-            params.append(document_ids)
-        params.append(limit)
+            scope_filter = "dc.project_id = %s AND dc.document_id = ANY(%s::uuid[])"
+            params: list = [lexical_query, query_vector, project_id, document_ids, limit]
+        else:
+            scope_filter = "dc.user_id = %s AND dc.project_id = %s"
+            params = [lexical_query, query_vector, user_id, project_id, limit]
 
         sql = f"""
             WITH query_data AS (
@@ -169,10 +170,8 @@ class RetrievalService:
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             CROSS JOIN query_data
-            WHERE dc.user_id = %s
-              AND dc.project_id = %s
+            WHERE {scope_filter}
               AND d.status = 'ready'
-              {document_filter}
               AND dc.search_vector @@ query_data.query
             ORDER BY lexical_score DESC
             LIMIT %s;
@@ -263,7 +262,6 @@ class RetrievalService:
         *,
         core_results: list[dict],
         query_vector: str,
-        user_id: str,
         project_id: str,
     ) -> list[dict]:
         window = self.settings.neighbor_window
@@ -278,6 +276,9 @@ class RetrievalService:
         if not requested_pairs:
             return core_results[: self.settings.max_context_chunks]
 
+        # requested_pairs is derived only from chunks that already passed the
+        # project/document authorization above, so neighboring chunks can be
+        # loaded by project without re-applying the conversation owner filter.
         sql = """
             SELECT
                 dc.document_id::text,
@@ -291,8 +292,7 @@ class RetrievalService:
                 (dc.embedding <=> %s::vector) AS distance
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
-            WHERE dc.user_id = %s
-              AND dc.project_id = %s
+            WHERE dc.project_id = %s
               AND d.status = 'ready'
               AND (dc.document_id::text || ':' || dc.chunk_index::text) = ANY(%s::text[]);
         """
@@ -300,7 +300,7 @@ class RetrievalService:
         with get_connection(cursor_factory=dict_cursor()) as (_, cursor):
             cursor.execute(
                 sql,
-                [query_vector, user_id, project_id, sorted(requested_pairs)],
+                [query_vector, project_id, sorted(requested_pairs)],
             )
             rows = cursor.fetchall()
 
