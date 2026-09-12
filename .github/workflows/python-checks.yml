@@ -36,7 +36,8 @@ jobs:
       - name: Check hybrid chat routing
         run: |
           python - <<'PY'
-          from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
+          from app.api.chat_v5 import _fallback_intent
+          from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, router
           from app.main import app
 
           assert app.title
