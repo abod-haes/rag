@@ -1,4 +1,5 @@
-from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
+from app.api.chat_v5 import _fallback_intent
+from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, router
 from app.services.chunk_service import build_chunks_from_pages
 from app.services.json_response_utils import parse_json_object, strip_source_markers
 from app.services.retrieval_gate_service import ACCEPT, ABSTAIN, RETRY, RetrievalGateService
