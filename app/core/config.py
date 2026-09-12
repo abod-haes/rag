@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "RAG Service"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     app_env: str = "development"
     cors_origins: list[str] = ["*"]
 
@@ -39,19 +39,33 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = 500
     max_chunk_tokens: int = 900
     chunk_overlap_tokens: int = 120
+    contextual_chunk_max_tokens: int = 550
+    contextual_chunk_overlap_tokens: int = 80
+    parent_context_max_tokens: int = 1400
     max_chunks_per_document: int = 0
     embedding_batch_size: int = 32
     embedding_request_delay_seconds: float = 0.0
     max_upload_size_mb: int = 100
     allow_duplicate_documents: bool = False
 
-    retrieval_candidate_k: int = 20
+    retrieval_candidate_k: int = 24
     min_relevance_score: float = 0.20
     vector_weight: float = 0.60
     lexical_weight: float = 0.25
     exact_match_weight: float = 0.15
     neighbor_window: int = 1
     max_context_chunks: int = 12
+
+    semantic_reranker_enabled: bool = True
+    semantic_reranker_candidate_k: int = 14
+    semantic_reranker_top_k: int = 6
+    semantic_reranker_max_chars_per_candidate: int = 1200
+    semantic_reranker_weight: float = 0.78
+
+    retrieval_gate_accept_score: float = 0.60
+    retrieval_gate_retry_score: float = 0.32
+    retrieval_gate_min_hybrid_score: float = 0.16
+    retrieval_gate_max_retries: int = 1
 
     document_routing_candidate_chunks: int = 80
     document_routing_min_score: float = 0.28
