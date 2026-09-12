@@ -106,7 +106,10 @@ class SemanticRerankerService:
         exact_score = clamp_score(top.get("exact_match_score"), 0.0)
         lexical_score = clamp_score(top.get("lexical_score"), 0.0)
 
-        if exact_score >= self.settings.semantic_reranker_skip_exact_score:
+        if (
+            exact_score >= self.settings.semantic_reranker_skip_exact_score
+            and top_hybrid >= self.settings.retrieval_gate_retry_score
+        ):
             return False, "strong_exact_match"
 
         if (
