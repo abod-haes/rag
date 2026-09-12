@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from app.core.config import get_settings
 from app.services.chat_service import ChatService
 from app.services.embedding_service import EmbeddingService
-from app.services.retrieval_gate_service import ACCEPT, RETRY, RetrievalGateDecision, RetrievalGateService
+from app.services.retrieval_gate_service import (
+    ACCEPT,
+    RETRY,
+    RetrievalGateDecision,
+    RetrievalGateService,
+)
 from app.services.retrieval_v2_service import RetrievalV2Service
 from app.services.semantic_reranker_service import SemanticRerankerService
 from app.services.usage_service import TokenUsage
@@ -20,6 +25,8 @@ class RetrievalPipelineResult:
     chat_usage: TokenUsage
     additional_embedding_tokens: int
     used_model_reranker: bool
+    model_reranker_calls: int
+    reranker_reason: str
 
     @property
     def accepted(self) -> bool:
@@ -34,6 +41,8 @@ class RetrievalPipelineResult:
             "retrievalQuery": self.retrieval_query,
             "candidateCount": self.candidate_count,
             "usedSemanticReranker": self.used_model_reranker,
+            "semanticRerankerCalls": self.model_reranker_calls,
+            "semanticRerankerReason": self.reranker_reason,
         }
 
 
@@ -66,6 +75,7 @@ class RetrievalPipelineService:
         retry_count = 0
         retrieval_query = query
         active_embedding = query_embedding
+        model_reranker_calls = 0
 
         candidates = self.retriever.retrieve_candidates(
             query_embedding=query_embedding,
@@ -78,6 +88,8 @@ class RetrievalPipelineService:
         chat_usage = chat_usage + rerank_result.usage
         ranked = rerank_result.candidates
         used_model_reranker = rerank_result.used_model_reranker
+        model_reranker_calls += int(rerank_result.used_model_reranker)
+        reranker_reason = rerank_result.reason
         decision = self.gate.assess(ranked, retry_count=0)
 
         if decision.status == RETRY and self.settings.retrieval_gate_max_retries > 0:
@@ -90,7 +102,9 @@ class RetrievalPipelineService:
             chat_usage = chat_usage + rewrite_usage
 
             if retry_query and retry_query.casefold().strip() != query.casefold().strip():
-                retry_embedding_result = self.embedding_service.embed_query_with_usage(retry_query)
+                retry_embedding_result = self.embedding_service.embed_query_with_usage(
+                    retry_query
+                )
                 additional_embedding_tokens += retry_embedding_result.usage.input_tokens
                 active_embedding = retry_embedding_result.values
                 retrieval_query = retry_query
@@ -103,12 +117,17 @@ class RetrievalPipelineService:
                     document_ids=document_ids,
                 )
                 merged = _merge_candidate_sets(ranked, retry_candidates)
-                second_rerank = self.reranker.rerank(query=query, candidates=merged)
+                second_rerank = self.reranker.rerank(
+                    query=query,
+                    candidates=merged,
+                )
                 chat_usage = chat_usage + second_rerank.usage
                 ranked = second_rerank.candidates
                 used_model_reranker = (
                     used_model_reranker or second_rerank.used_model_reranker
                 )
+                model_reranker_calls += int(second_rerank.used_model_reranker)
+                reranker_reason = second_rerank.reason
 
             decision = self.gate.assess(ranked, retry_count=retry_count)
 
@@ -123,6 +142,8 @@ class RetrievalPipelineService:
                 chat_usage=chat_usage,
                 additional_embedding_tokens=additional_embedding_tokens,
                 used_model_reranker=used_model_reranker,
+                model_reranker_calls=model_reranker_calls,
+                reranker_reason=reranker_reason,
             )
 
         core_results = ranked[: max(1, self.settings.semantic_reranker_top_k)]
@@ -141,6 +162,8 @@ class RetrievalPipelineService:
             chat_usage=chat_usage,
             additional_embedding_tokens=additional_embedding_tokens,
             used_model_reranker=used_model_reranker,
+            model_reranker_calls=model_reranker_calls,
+            reranker_reason=reranker_reason,
         )
 
     def _rewrite_for_retrieval(
@@ -198,13 +221,19 @@ def _merge_candidate_sets(first: list[dict], second: list[dict]) -> list[dict]:
             merged[key] = dict(item)
             continue
 
-        existing_hybrid = float(existing.get("hybrid_score") or existing.get("score") or 0.0)
-        incoming_hybrid = float(item.get("hybrid_score") or item.get("score") or 0.0)
+        existing_hybrid = float(
+            existing.get("hybrid_score") or existing.get("score") or 0.0
+        )
+        incoming_hybrid = float(
+            item.get("hybrid_score") or item.get("score") or 0.0
+        )
         if incoming_hybrid > existing_hybrid:
             merged[key] = dict(item)
 
     return sorted(
         merged.values(),
-        key=lambda item: float(item.get("hybrid_score") or item.get("score") or 0.0),
+        key=lambda item: float(
+            item.get("hybrid_score") or item.get("score") or 0.0
+        ),
         reverse=True,
     )
