@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "RAG Service"
-    app_version: str = "0.2.0"
+    app_version: str = "0.2.1"
     app_env: str = "development"
     cors_origins: list[str] = ["*"]
 
@@ -57,10 +57,16 @@ class Settings(BaseSettings):
     max_context_chunks: int = 12
 
     semantic_reranker_enabled: bool = True
-    semantic_reranker_candidate_k: int = 14
-    semantic_reranker_top_k: int = 6
-    semantic_reranker_max_chars_per_candidate: int = 1200
+    semantic_reranker_adaptive_enabled: bool = True
+    semantic_reranker_candidate_k: int = 8
+    semantic_reranker_top_k: int = 5
+    semantic_reranker_max_chars_per_candidate: int = 800
     semantic_reranker_weight: float = 0.78
+    semantic_reranker_skip_hybrid_score: float = 0.68
+    semantic_reranker_skip_margin: float = 0.10
+    semantic_reranker_skip_exact_score: float = 0.72
+    semantic_reranker_skip_lexical_score: float = 0.82
+    semantic_reranker_skip_lexical_min_hybrid: float = 0.42
 
     retrieval_gate_accept_score: float = 0.60
     retrieval_gate_retry_score: float = 0.32
