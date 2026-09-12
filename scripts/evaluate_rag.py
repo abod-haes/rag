@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -11,9 +12,13 @@ FALLBACK_MARKERS = (
     "لا يوجد جواب",
     "لم يتم العثور",
     "تعذر توليد",
+    "مو موجودة ضمن منهاجك",
+    "مو موجود ضمن منهاجك",
     "not found",
     "insufficient",
+    "not in your current curriculum",
 )
+SOURCE_MARKER_RE = re.compile(r"\[(?:S|s)\d+(?:\s*,[^\]]+)?\]")
 
 
 def main() -> int:
@@ -60,12 +65,36 @@ def main() -> int:
         print(f"[{status}] {result['id']}: {result['reason']}")
 
     pass_rate = passed / len(results)
+    confidence_values = [
+        float(result["confidence"])
+        for result in results
+        if result.get("confidence") is not None
+    ]
+    retry_values = [int(result.get("retrievalRetryCount") or 0) for result in results]
+    marker_leaks = sum(bool(result.get("sourceMarkerLeak")) for result in results)
+    routing_counts: dict[str, int] = {}
+    for result in results:
+        routing = str(result.get("routingStatus") or "unknown")
+        routing_counts[routing] = routing_counts.get(routing, 0) + 1
+
     print(
         json.dumps(
             {
                 "passed": passed,
                 "total": len(results),
                 "passRate": round(pass_rate, 4),
+                "averageConfidence": (
+                    round(sum(confidence_values) / len(confidence_values), 4)
+                    if confidence_values
+                    else None
+                ),
+                "averageRetrievalRetries": (
+                    round(sum(retry_values) / len(retry_values), 4)
+                    if retry_values
+                    else 0.0
+                ),
+                "sourceMarkerLeaks": marker_leaks,
+                "routingCounts": routing_counts,
                 "results": results,
             },
             ensure_ascii=False,
@@ -119,6 +148,7 @@ def evaluate_case(
 
     answer = str(data.get("answer") or "")
     sources = data.get("sources") or []
+    diagnostics = data.get("retrievalDiagnostics") or {}
     answer_folded = answer.casefold()
 
     expected_keywords = [
@@ -149,11 +179,43 @@ def evaluate_case(
         not should_answer and has_fallback
     )
 
+    source_marker_leak = bool(SOURCE_MARKER_RE.search(answer))
+    source_marker_ok = not case.get("forbidSourceMarkers", True) or not source_marker_leak
+
+    expected_routing = case.get("expectedRoutingStatus")
+    routing_status = data.get("routingStatus")
+    routing_ok = expected_routing is None or routing_status == expected_routing
+
+    minimum_confidence = case.get("minimumConfidence")
+    confidence = data.get("confidence")
+    confidence_ok = (
+        minimum_confidence is None
+        or confidence is not None
+        and float(confidence) >= float(minimum_confidence)
+    )
+
+    expected_grounding = case.get("expectedGroundingMode")
+    grounding_mode = data.get("groundingMode")
+    grounding_ok = expected_grounding is None or grounding_mode == expected_grounding
+
+    max_retries = case.get("maxRetrievalRetries")
+    retry_count = int(diagnostics.get("retryCount") or 0)
+    retries_ok = max_retries is None or retry_count <= int(max_retries)
+
+    require_sources = bool(case.get("requireSources", False))
+    sources_ok = not require_sources or bool(sources)
+
     passed = (
         not missing_keywords
         and not found_forbidden
         and source_page_ok
         and answer_behavior_ok
+        and source_marker_ok
+        and routing_ok
+        and confidence_ok
+        and grounding_ok
+        and retries_ok
+        and sources_ok
     )
     reasons: list[str] = []
     if missing_keywords:
@@ -166,12 +228,35 @@ def evaluate_case(
         )
     if not answer_behavior_ok:
         reasons.append("answer/fallback behavior did not match shouldAnswer")
+    if not source_marker_ok:
+        reasons.append("source marker leaked into student-visible answer")
+    if not routing_ok:
+        reasons.append(f"expected routing {expected_routing}, got {routing_status}")
+    if not confidence_ok:
+        reasons.append(
+            f"confidence {confidence} is below required {minimum_confidence}"
+        )
+    if not grounding_ok:
+        reasons.append(
+            f"expected grounding {expected_grounding}, got {grounding_mode}"
+        )
+    if not retries_ok:
+        reasons.append(f"retrieval retried {retry_count} times; max is {max_retries}")
+    if not sources_ok:
+        reasons.append("expected at least one used source")
 
     return {
         "id": case.get("id", "unknown"),
         "passed": passed,
         "reason": "; ".join(reasons) if reasons else "all checks passed",
+        "routingStatus": routing_status,
+        "groundingMode": grounding_mode,
+        "confidence": confidence,
         "sourcePages": sorted(actual_pages),
+        "sourceMarkerLeak": source_marker_leak,
+        "retrievalGateStatus": diagnostics.get("gateStatus"),
+        "retrievalGateScore": diagnostics.get("gateScore"),
+        "retrievalRetryCount": retry_count,
         "retrievedSourceCount": data.get("retrievedSourceCount", 0),
         "estimatedCostUsd": (data.get("usage") or {}).get("estimatedCostUsd"),
     }
