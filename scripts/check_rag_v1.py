@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from app.api.chat_v5 import _fallback_intent
 from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, router
 from app.services.chunk_service import build_chunks_from_pages
