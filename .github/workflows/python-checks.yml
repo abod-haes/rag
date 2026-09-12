@@ -36,7 +36,7 @@ jobs:
       - name: Check hybrid chat routing
         run: |
           python - <<'PY'
-          from app.api.chat_v5 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
+          from app.api.chat_v6 import CURRICULUM, GENERAL_CHAT, _curriculum_fallback, _fallback_intent, router
           from app.main import app
 
           assert app.title
@@ -45,7 +45,8 @@ jobs:
           assert _fallback_intent("حل 2+2", []) == CURRICULUM
 
           fallback = _curriculum_fallback("اشرحلي الفيزياء")
-          assert "مفهرسة" not in fallback
+          assert "منهاجك" in fallback
+          assert "المحتوى الدراسي المتاح" not in fallback
           assert "RAG" not in fallback
 
           ask_routes = [
@@ -63,3 +64,5 @@ jobs:
           assert len(ask_routes) == 1
           assert len(stream_routes) == 1
           PY
+      - name: Check RAG V1 retrieval pipeline
+        run: python scripts/check_rag_v1.py
